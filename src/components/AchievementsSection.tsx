@@ -3,7 +3,7 @@ import React from 'react';
 import { Trophy } from 'lucide-react';
 import { Achievement } from '../types';
 import { ACHIEVEMENTS } from '../constants';
-import { getAchievementStatus, publicAsset } from '../utils';
+import { getAchievementStatus, graphicAsset } from '../utils';
 
 interface AchievementsSectionProps {
   totalQuestions: number;
@@ -50,7 +50,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = React.mem
               <div className="w-20 h-20 mb-2 relative flex items-center justify-center rounded-full overflow-hidden border-2 border-white/20 bg-white/5 shadow-lg">
                 {achieved ? (
                   <img 
-                    src={publicAsset(`assets/graphic_${achievement.image}.png`)} 
+                    src={graphicAsset(achievement.image)} 
                     alt={achievement.title}
                     className="w-full h-full object-cover scale-150"
                     referrerPolicy="no-referrer"

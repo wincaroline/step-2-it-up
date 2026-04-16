@@ -7,6 +7,11 @@ export function publicAsset(path: string): string {
   return `${import.meta.env.BASE_URL}${normalized}`;
 }
 
+export function graphicAsset(name: string): string {
+  return publicAsset(`assets/graphic_${name}.webp`);
+}
+
+
 export function dateKeyFromDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
