@@ -757,7 +757,7 @@ export default function App() {
           </div>
           {isTestMode && (
             <div className="bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest animate-pulse shadow-lg border border-red-400 self-start sm:self-auto ml-1 sm:ml-0">
-              Test Mode On
+              Admin Mode On
             </div>
           )}
         </div>
@@ -897,11 +897,12 @@ export default function App() {
                     const streak = calculateCurrentStreak(history, new Date());
                     const flameStyle = getStreakFlameStyle(streak);
                     const streakTextStyle = streak >= 3 ? { filter: flameStyle.style?.filter } : undefined;
+                    const streakTextColorClass = streak >= 5 ? 'text-white' : 'text-yellow-300';
                     return (
                       <>
                         <Flame className={flameStyle.className} style={flameStyle.style} />
                         <span
-                          className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}
+                          className={`text-4xl font-black drop-shadow-md ${streakTextColorClass}`}
                           style={streakTextStyle}
                         >
                           {streak}
@@ -925,9 +926,14 @@ export default function App() {
                   <TrendingUp className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-yellow-300'}`} />
                   <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}>
                     {(() => {
-                      const values = Object.values(history) as number[];
-                      const last3 = values.slice(-3);
-                      return last3.length ? (last3.reduce((a: number, b: number) => a + b, 0) / last3.length).toFixed(1) : 0;
+                      const historyWithToday = { ...history, [todayKey]: dailyQuestions };
+                      const last3ByDate = Object.entries(historyWithToday)
+                        .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+                        .slice(-3)
+                        .map(([, count]) => Number(count));
+                      return last3ByDate.length
+                        ? (last3ByDate.reduce((sum, count) => sum + count, 0) / last3ByDate.length).toFixed(1)
+                        : 0;
                     })()}
                   </span>
                 </div>
@@ -960,9 +966,10 @@ export default function App() {
                     );
                     const isNewRecordToday = todayCount > maxOnOtherDays;
                     const recordIconStyle = getRecordIconStyle(isNewRecordToday);
+                    const recordTextColorClass = isNewRecordToday ? 'text-white' : 'text-yellow-300';
                     return (
                       <span
-                        className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}
+                        className={`text-4xl font-black drop-shadow-md ${recordTextColorClass}`}
                         style={recordIconStyle.style}
                       >
                         {Math.max(...(Object.values(history) as number[]), 0)}
@@ -1151,7 +1158,7 @@ export default function App() {
                       <div 
                         key={dateKey}
                         onClick={() => setSelectedHistoryDate({ date: date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), count, dateKey, isExamDay })}
-                        className={`aspect-square rounded-lg border-2 flex items-center justify-center text-[10px] font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative ${
+                        className={`aspect-square rounded-lg border-2 flex items-center justify-center text-xs font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative ${
                           isExamDay
                             ? 'bg-red-600 border-red-400 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]'
                             : isFuture && !isTestMode
@@ -1178,12 +1185,12 @@ export default function App() {
                         {isExamDay ? (
                           'EXAM'
                         ) : (
-                          <>
-                            {count > 0 ? count : ''}
+                          <div className="flex flex-col items-center justify-center leading-none">
+                            <span>{count > 0 ? count : ''}</span>
                             {practiceTestCompletionDates[dateKey] && (
                               <Trophy className={`w-3 h-3 mt-0.5 ${isTrophyOnLightBackground ? 'text-black' : 'text-yellow-300'}`} />
                             )}
-                          </>
+                          </div>
                         )}
                         {isToday && (
                           <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-ping" />
@@ -1525,7 +1532,7 @@ export default function App() {
                             onChange={(e) => {
                               const val = e.target.value;
                               setTestCodeInput(val);
-                              if (val === "5138") {
+                              if (val === "6782") {
                                 setIsTestMode(true);
                                 setShowTestCodeInput(false);
                                 setTestCodeInput("");
