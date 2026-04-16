@@ -30,7 +30,7 @@ import {
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { GraphicMap, StreakFlameGraphic, SeaweedGraphic, CoralGraphic } from './components/Graphics';
 import type { StreakFlameVariant } from './types';
-import { calculateCurrentStreak, streakFlameVariantFromCount, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS } from './utils';
+import { calculateCurrentStreak, streakFlameVariantFromCount, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
@@ -164,7 +164,7 @@ export default function App() {
       triggerFireworks();
 
       if (!isMuted) {
-        const music = new Audio('/assets/dancemusic.mp3');
+        const music = new Audio(publicAsset('assets/dancemusic.mp3'));
         music.loop = true;
         music.volume = 0.5;
         music.play().catch(err => console.error("Achievement music failed:", err));
@@ -283,8 +283,8 @@ export default function App() {
   useEffect(() => {
     // Pre-load all level graphics and other key assets
     const imagesToPreload = [
-      ...LEVELS.map(l => `/assets/graphic_${l.graphic}.png`),
-      '/assets/graphic_salmonthumbsup.png'
+      ...LEVELS.map(l => publicAsset(`assets/graphic_${l.graphic}.png`)),
+      publicAsset('assets/graphic_salmonthumbsup.png')
     ];
     
     imagesToPreload.forEach(src => {
@@ -379,13 +379,13 @@ export default function App() {
     
     // Play interaction sounds
     if (!isMuted && amount !== 0) {
-      let soundPath = amount > 0 ? '/assets/bubble_up.mp3' : '/assets/bubble_down.mp3';
+      let soundPath = amount > 0 ? publicAsset('assets/bubble_up.mp3') : publicAsset('assets/bubble_down.mp3');
       
       // Special sound for reaching daily goal (180)
       if (hitDailyGoal && amount > 0) {
-        soundPath = '/assets/fireworks.mp3';
+        soundPath = publicAsset('assets/fireworks.mp3');
       } else if (canShowRecordDayModal && amount > 0) {
-        soundPath = '/assets/fireworks.mp3';
+        soundPath = publicAsset('assets/fireworks.mp3');
       }
 
       console.log(`Playing sound: ${soundPath}`);
@@ -482,7 +482,7 @@ export default function App() {
         setShowRecordDayModal(true);
         triggerFireworks();
         if (!isMuted) {
-          const audio = new Audio('/assets/fireworks.mp3');
+          const audio = new Audio(publicAsset('assets/fireworks.mp3'));
           audio.volume = 0.7;
           audio.play().catch((err) => console.error('Audio play failed:', err));
         }
@@ -543,7 +543,7 @@ export default function App() {
     });
     triggerFireworks();
     if (!isMuted) {
-      const music = new Audio('/assets/dancemusic.mp3');
+      const music = new Audio(publicAsset('assets/dancemusic.mp3'));
       music.loop = true;
       music.volume = 0.5;
       music.play().catch((err) => console.error('Achievement music failed:', err));
@@ -599,7 +599,7 @@ export default function App() {
       triggerFireworks();
 
       if (!isMuted) {
-        const music = new Audio('/assets/dancemusic.mp3');
+        const music = new Audio(publicAsset('assets/dancemusic.mp3'));
         music.loop = true;
         music.volume = 0.5;
         music.play().catch(err => console.error("Achievement music failed:", err));
@@ -788,7 +788,7 @@ export default function App() {
             <section className="relative w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-transparent shadow-2xl flex flex-col items-center text-center gap-6 transition-all duration-500 relative overflow-hidden lg:hidden">
               <div className={`absolute inset-0 rounded-[3rem] border-4 pointer-events-none ${isSleepMode ? 'border-blue-400 shadow-[0_0_30px_rgba(96,165,250,0.4)] animate-pulse' : 'border-red-400 shadow-[0_0_18px_rgba(252,165,165,0.95),0_0_42px_rgba(248,113,113,0.85),0_0_72px_rgba(220,38,38,0.65),0_0_110px_rgba(127,29,29,0.45)] animate-pulse'}`} />
               <img 
-                src={isSleepMode ? "/assets/graphic_sleepingsalmon.png" : "/assets/graphic_anglerfishangry.png"} 
+                src={isSleepMode ? publicAsset('assets/graphic_sleepingsalmon.png') : publicAsset('assets/graphic_anglerfishangry.png')} 
                 alt={isSleepMode ? "Sleeping Salmon" : "Anglerfish"} 
                 className="w-full h-auto max-h-[400px] object-contain relative z-10" 
               />
@@ -969,7 +969,7 @@ export default function App() {
             <section className="relative hidden lg:flex w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-transparent shadow-2xl flex-col items-center text-center gap-6 transition-all duration-500 relative overflow-hidden font-serious">
               <div className={`absolute inset-0 rounded-[3rem] border-4 pointer-events-none ${isSleepMode ? 'border-blue-400 shadow-[0_0_30px_rgba(96,165,250,0.4)] animate-pulse' : 'border-red-400 shadow-[0_0_18px_rgba(252,165,165,0.95),0_0_42px_rgba(248,113,113,0.85),0_0_72px_rgba(220,38,38,0.65),0_0_110px_rgba(127,29,29,0.45)] animate-pulse'}`} />
               <img 
-                src={isSleepMode ? "/assets/graphic_sleepingsalmon.png" : "/assets/graphic_anglerfishangry.png"} 
+                src={isSleepMode ? publicAsset('assets/graphic_sleepingsalmon.png') : publicAsset('assets/graphic_anglerfishangry.png')} 
                 alt={isSleepMode ? "Sleeping Salmon" : "Anglerfish"} 
                 className="w-full h-auto max-h-[400px] object-contain relative z-10" 
               />
@@ -1180,7 +1180,7 @@ export default function App() {
                 {selectedHistoryDate.count >= 180 && !selectedHistoryDate.isExamDay && (
                   <div className="w-full">
                     <img 
-                      src="/assets/graphic_salmonthumbsup.png" 
+                      src={publicAsset('assets/graphic_salmonthumbsup.png')} 
                       alt="Salmon Thumbs Up" 
                       className="w-full object-contain"
                     />
@@ -1280,7 +1280,7 @@ export default function App() {
                       <div className={`w-32 h-32 rounded-2xl flex items-center justify-center overflow-hidden ${isReached ? 'bg-white/5' : 'bg-black/20'}`}>
                         {showImage ? (
                           <img 
-                            src={`/assets/graphic_${level.graphic}.png`} 
+                            src={publicAsset(`assets/graphic_${level.graphic}.png`)} 
                             alt={level.name} 
                             className="w-full h-full object-cover"
                           />
@@ -1541,7 +1541,7 @@ export default function App() {
                 <motion.img 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  src="/assets/graphic_salmonthumbsup.png" 
+                  src={publicAsset('assets/graphic_salmonthumbsup.png')} 
                   alt="Salmon Thumbs Up" 
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
@@ -1585,7 +1585,7 @@ export default function App() {
                 <motion.img 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  src="/assets/graphic_salmonthumbsup.png" 
+                  src={publicAsset('assets/graphic_salmonthumbsup.png')} 
                   alt="Salmon Thumbs Up" 
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
@@ -1639,7 +1639,7 @@ export default function App() {
                     }}
                     className={`cursor-pointer rounded-2xl border-4 overflow-hidden transition-all hover:scale-105 ${displayVariant === variant ? 'border-cyan-500 shadow-lg' : 'border-gray-200 opacity-70'}`}
                   >
-                    <img src={`/assets/graphic_${variant}.png`} alt={variant} className="w-full aspect-square object-cover" />
+                    <img src={publicAsset(`assets/graphic_${variant}.png`)} alt={variant} className="w-full aspect-square object-cover" />
                   </div>
                 ))}
               </div>
@@ -1674,7 +1674,7 @@ export default function App() {
               className="relative w-full h-full flex items-center justify-center overflow-hidden"
             >
               <motion.img 
-                src={`/assets/graphic_${displayVariant}.png`}
+                src={publicAsset(`assets/graphic_${displayVariant}.png`)}
                 alt={currentLevel.name}
                 drag
                 dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
@@ -1801,7 +1801,7 @@ export default function App() {
                         />
                       )}
                       <img 
-                        src={`/assets/graphic_${selectedAchievement.image}.png`} 
+                        src={publicAsset(`assets/graphic_${selectedAchievement.image}.png`)} 
                         alt={selectedAchievement.title}
                         className="w-full h-full object-cover drop-shadow-[0_0_30px_rgba(255,255,255,0.2)] relative z-10"
                       />

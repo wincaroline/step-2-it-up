@@ -1,6 +1,12 @@
 
 import { StreakFlameVariant, Achievement } from './types';
 
+/** URL for a file in `public/` (respects Vite `base`, e.g. GitHub Pages project subpath). */
+export function publicAsset(path: string): string {
+  const normalized = path.replace(/^\/+/, '');
+  return `${import.meta.env.BASE_URL}${normalized}`;
+}
+
 export function dateKeyFromDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

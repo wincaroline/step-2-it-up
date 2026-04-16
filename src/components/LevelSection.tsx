@@ -2,6 +2,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Level } from '../types';
+import { publicAsset } from '../utils';
 
 interface LevelSectionProps {
   currentLevel: Level;
@@ -53,7 +54,7 @@ export const LevelSection: React.FC<LevelSectionProps> = React.memo(({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5 }}
-          src={`/assets/graphic_${displayVariant}.png`}
+          src={publicAsset(`assets/graphic_${displayVariant}.png`)}
           alt={currentLevel.name} 
           className="w-full h-full object-cover"
           referrerPolicy="no-referrer"

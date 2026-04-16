@@ -1,3 +1,7 @@
+# Publishes the Vite `dist/` output. In the repo: Settings → Pages → Build and deployment →
+# Source must be "GitHub Actions". If Source is "Deploy from a branch" (e.g. / (root)),
+# the site will serve the dev index.html and the app will be a blank page.
+
 name: Deploy to GitHub Pages
 
 on:
