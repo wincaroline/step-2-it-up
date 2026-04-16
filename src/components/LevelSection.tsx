@@ -64,9 +64,9 @@ export const LevelSection: React.FC<LevelSectionProps> = React.memo(({
       {unlockedVariantsCount > 1 && (
         <button
           onClick={() => setShowVariantModal(true)}
-          className="mt-2 text-xs font-bold bg-white/20 hover:bg-white/30 px-4 py-2 rounded-full transition-all border border-white/30"
+          className="mt-2 text-sm font-bold bg-white/20 hover:bg-white/30 px-4 py-2 rounded-full transition-all border border-white/30"
         >
-          Switch Version
+          Switch Image
         </button>
       )}
 

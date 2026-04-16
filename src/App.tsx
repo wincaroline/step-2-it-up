@@ -24,13 +24,13 @@ import {
   ClipboardCheck,
   BookOpen,
   TrendingUp,
-  Award
+  Award,
+  Flame
 } from 'lucide-react';
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
-import { GraphicMap, StreakFlameGraphic, SeaweedGraphic, CoralGraphic } from './components/Graphics';
-import type { StreakFlameVariant } from './types';
-import { calculateCurrentStreak, streakFlameVariantFromCount, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset } from './utils';
+import { GraphicMap, SeaweedGraphic, CoralGraphic } from './components/Graphics';
+import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
@@ -92,9 +92,24 @@ export default function App() {
   });
   const [showTestCodeInput, setShowTestCodeInput] = useState(false);
   const [testCodeInput, setTestCodeInput] = useState("");
-  const [isWeeklyMissionComplete, setIsWeeklyMissionComplete] = useState(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('isWeeklyMissionComplete') : null;
-    return saved === 'true';
+  const [practiceTestCompletionDates, setPracticeTestCompletionDates] = useState<Record<string, true>>(() => {
+    if (typeof window === 'undefined') return {};
+    const savedCompletionDates = localStorage.getItem('practiceTestCompletionDates');
+    if (savedCompletionDates) {
+      try {
+        const parsed = JSON.parse(savedCompletionDates);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      } catch (e) {
+        console.error('Failed to parse practiceTestCompletionDates', e);
+      }
+    }
+    const savedDate = localStorage.getItem('lastPracticeTestCompletedDate');
+    if (savedDate) return { [savedDate]: true };
+    // Backward compatibility: migrate old weekly completion flag to "today completed".
+    const legacyCompleted = localStorage.getItem('isWeeklyMissionComplete') === 'true';
+    return legacyCompleted ? { [dateKeyFromDate(new Date())]: true } : {};
   });
   const [totalPracticeTests, setTotalPracticeTests] = useState(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('totalPracticeTests') : null;
@@ -126,6 +141,8 @@ export default function App() {
   }, [simulatedTime]);
 
   const effectiveTime = simulatedTime || currentTime;
+  const todayKey = dateKeyFromDate(effectiveTime);
+  const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
 
   const checkMilestones = (newDaily: number, newTotal: number, newHistory: Record<string, number> = history) => {
     // 1. Check for level up
@@ -311,39 +328,22 @@ export default function App() {
   }, [totalQuestions, currentLevelIndex, lastLevel, isMuted, lastAchievedIds]);
 
   useEffect(() => {
-    // Automatic Weekly Reset (Sunday 12 AM)
-    const checkWeeklyReset = () => {
-      const now = new Date();
-      const lastReset = localStorage.getItem('lastWeeklyReset');
-      
-      // Get the start of the current week (Sunday 12 AM)
-      const currentWeekStart = new Date(now);
-      currentWeekStart.setHours(0, 0, 0, 0);
-      currentWeekStart.setDate(now.getDate() - now.getDay());
-      
-      const lastResetTime = lastReset ? parseInt(lastReset) : 0;
-      
-      if (lastResetTime < currentWeekStart.getTime()) {
-        console.log("New week detected! Resetting weekly mission...");
-        setIsWeeklyMissionComplete(false);
-        localStorage.setItem('lastWeeklyReset', currentWeekStart.getTime().toString());
-      }
-    };
-
-    checkWeeklyReset();
-    // Check every hour in case the app is left open
-    const interval = setInterval(checkWeeklyReset, 1000 * 60 * 60);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem('isTestMode', isTestMode.toString());
   }, [isTestMode]);
 
   useEffect(() => {
-    localStorage.setItem('isWeeklyMissionComplete', isWeeklyMissionComplete.toString());
+    localStorage.setItem('practiceTestCompletionDates', JSON.stringify(practiceTestCompletionDates));
+    const completionDates = Object.keys(practiceTestCompletionDates).sort();
+    const latestCompletionDate = completionDates.length > 0 ? completionDates[completionDates.length - 1] : null;
+    if (latestCompletionDate) {
+      localStorage.setItem('lastPracticeTestCompletedDate', latestCompletionDate);
+    } else {
+      localStorage.removeItem('lastPracticeTestCompletedDate');
+    }
+    localStorage.removeItem('isWeeklyMissionComplete');
+    localStorage.removeItem('lastWeeklyReset');
     localStorage.setItem('totalPracticeTests', totalPracticeTests.toString());
-  }, [isWeeklyMissionComplete, totalPracticeTests]);
+  }, [practiceTestCompletionDates, totalPracticeTests]);
 
   useEffect(() => {
     // Lock body scroll when any modal is open
@@ -437,7 +437,7 @@ export default function App() {
     setDailyQuestions(0);
     setTotalQuestions(0);
     setLastLevel(0);
-    setIsWeeklyMissionComplete(false);
+    setPracticeTestCompletionDates({});
     setTotalPracticeTests(0);
     setHistory({});
     setLastAchievedIds(['plankton']);
@@ -559,6 +559,63 @@ export default function App() {
   const getMotivation = () => {
     if (dailyQuestions === 0) return "";
     return goalMessage || "Just keep swimming! You're doing great! ";
+  };
+
+  const getStreakFlameStyle = (streak: number): { className: string; style?: React.CSSProperties } => {
+    if (streak <= 1) {
+      return {
+        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-30',
+        style: { transform: 'scale(0.9)' },
+      };
+    }
+
+    if (streak === 2) {
+      return {
+        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-70',
+        style: { transform: 'scale(0.9)' },
+      };
+    }
+
+    if (streak === 3) {
+      return {
+        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-80',
+        style: {
+          transform: 'scale(1)',
+          filter: 'drop-shadow(0 0 8px rgba(249,115,22,1)) drop-shadow(0 0 8px rgba(249,115,22,0.8))',
+        },
+      };
+    }
+
+    if (streak === 4) {
+      return {
+        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-90',
+        style: {
+          transform: 'scale(1.1)',
+          filter: 'drop-shadow(0 0 12px rgba(249,115,22,0.8)) drop-shadow(0 0 28px rgba(249,115,22,0.8))',
+        },
+      };
+    }
+
+    return {
+      className: 'w-6 h-6 shrink-0 text-white opacity-100',
+      style: {
+        transform: 'scale(1.3)',
+        filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.7)) drop-shadow(0 0 8px rgba(251,146,60,0.7))',
+      },
+    };
+  };
+
+  const getRecordIconStyle = (isNewRecordToday: boolean): { className: string; style?: React.CSSProperties } => {
+    if (!isNewRecordToday) {
+      return { className: 'w-6 h-6 text-zinc-300 opacity-70' };
+    }
+
+    return {
+      className: 'w-6 h-6 shrink-0 text-white opacity-100',
+      style: {
+        filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.7)) drop-shadow(0 0 18px rgba(250,204,21,0.7))',
+      },
+    };
   };
 
   const simulateStreak = (days: number) => {
@@ -838,13 +895,17 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   {(() => {
                     const streak = calculateCurrentStreak(history, new Date());
+                    const flameStyle = getStreakFlameStyle(streak);
+                    const streakTextStyle = streak >= 3 ? { filter: flameStyle.style?.filter } : undefined;
                     return (
                       <>
-                        <StreakFlameGraphic
-                          variant={streakFlameVariantFromCount(streak)}
-                          className={`w-6 h-6 shrink-0 ${isSleepMode ? 'opacity-45 saturate-[0.55]' : isWarningMode ? 'opacity-90 brightness-95 contrast-110' : ''}`}
-                        />
-                        <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}>{streak}</span>
+                        <Flame className={flameStyle.className} style={flameStyle.style} />
+                        <span
+                          className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}
+                          style={streakTextStyle}
+                        >
+                          {streak}
+                        </span>
                       </>
                     );
                   })()}
@@ -874,8 +935,40 @@ export default function App() {
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
-                  <Award className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-yellow-300'}`} />
-                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}>{Math.max(...(Object.values(history) as number[]), 0)}</span>
+                  {(() => {
+                    const todayStr = dateKeyFromDate(effectiveTime);
+                    const todayCount = history[todayStr] || 0;
+                    const maxOnOtherDays = Math.max(
+                      0,
+                      ...Object.entries(history)
+                        .filter(([key]) => key !== todayStr)
+                        .map(([, value]) => Number(value))
+                    );
+                    const isNewRecordToday = todayCount > maxOnOtherDays;
+                    const recordIconStyle = getRecordIconStyle(isNewRecordToday);
+
+                    return <Award className={recordIconStyle.className} style={recordIconStyle.style} />;
+                  })()}
+                  {(() => {
+                    const todayStr = dateKeyFromDate(effectiveTime);
+                    const todayCount = history[todayStr] || 0;
+                    const maxOnOtherDays = Math.max(
+                      0,
+                      ...Object.entries(history)
+                        .filter(([key]) => key !== todayStr)
+                        .map(([, value]) => Number(value))
+                    );
+                    const isNewRecordToday = todayCount > maxOnOtherDays;
+                    const recordIconStyle = getRecordIconStyle(isNewRecordToday);
+                    return (
+                      <span
+                        className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}
+                        style={recordIconStyle.style}
+                      >
+                        {Math.max(...(Object.values(history) as number[]), 0)}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Record Questions In Day</span>
               </div>
@@ -884,32 +977,32 @@ export default function App() {
 
           {/* Practice Test Reminder */}
           <div className={`w-full p-6 rounded-[3rem] border-4 shadow-2xl flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 ${
-            isWeeklyMissionComplete && isWarningMode
+            isPracticeTestMissionCompleteToday && isWarningMode
               ? 'bg-white/80 backdrop-blur-xl text-black border-white/80'
-              : isWeeklyMissionComplete
+              : isPracticeTestMissionCompleteToday
                 ? 'bg-green-500/80 backdrop-blur-xl text-white border-white/40'
                 : isWarningMode
                   ? 'bg-red-600/80 backdrop-blur-xl text-white border-red-500/60'
                   : 'bg-yellow-400/80 backdrop-blur-xl text-black border-white/40'
           }`}>
             <div className={`${
-              isWeeklyMissionComplete
+              isPracticeTestMissionCompleteToday
                 ? isWarningMode
                   ? 'bg-green-600 text-white'
                   : 'bg-white text-green-500'
                 : 'bg-black text-white'
             } p-3 rounded-2xl shadow-lg transition-colors`}>
-              {isWeeklyMissionComplete ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
+              {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
             </div>
             <div className="flex flex-col flex-1 text-center sm:text-left">
               <span className="text-xs opacity-60 tracking-widest">
-                {isWeeklyMissionComplete ? 'Mission Accomplished' : 'Weekly Mission'}
+                {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : 'Daily Mission'}
               </span>
-              <span className={isWeeklyMissionComplete ? 'text-base' : ''}>
-                {isWeeklyMissionComplete ? 'Weekly Mission Complete' : '1 Practice Test!'}
+              <span className={isPracticeTestMissionCompleteToday ? 'text-base' : ''}>
+                {isPracticeTestMissionCompleteToday ? 'Daily Mission Complete' : '1 Practice Test!'}
               </span>
-              {isWeeklyMissionComplete && (
-                <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">1 practice test out of the way!</span>
+              {isPracticeTestMissionCompleteToday && (
+                <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
               )}
             </div>
             <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
@@ -937,14 +1030,18 @@ export default function App() {
                   </button>
                 </>
               )}
-              {!isWeeklyMissionComplete && (
+              {!isPracticeTestMissionCompleteToday && (
                 <button 
                   type="button"
                   onClick={() => {
-                    setIsWeeklyMissionComplete(true);
-                    const next = totalPracticeTests + 1;
-                    setTotalPracticeTests(next);
-                    celebratePracticeTestAchievements(next);
+                    const wasAlreadyCompleted = Boolean(practiceTestCompletionDates[todayKey]);
+                    if (wasAlreadyCompleted) return;
+                    setPracticeTestCompletionDates((prev) => ({ ...prev, [todayKey]: true }));
+                    setTotalPracticeTests((prev) => {
+                      const next = prev + 1;
+                      celebratePracticeTestAchievements(next);
+                      return next;
+                    });
                   }}
                   className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
                 >
@@ -1037,6 +1134,7 @@ export default function App() {
                     const isToday = dateKey === todayStr;
                     const isFuture = date > effectiveTime;
                     const isExamDay = dateKey === '2026-05-30';
+                    const isTrophyOnLightBackground = count > 45;
 
                     cumulativeTotal += count;
 
@@ -1077,7 +1175,16 @@ export default function App() {
                           boxShadow: isToday ? '0 0 15px rgba(255, 255, 255, 0.3)' : 'none'
                         } : {}}
                       >
-                        {isExamDay ? 'EXAM' : count > 0 ? count : ''}
+                        {isExamDay ? (
+                          'EXAM'
+                        ) : (
+                          <>
+                            {count > 0 ? count : ''}
+                            {practiceTestCompletionDates[dateKey] && (
+                              <Trophy className={`w-3 h-3 mt-0.5 ${isTrophyOnLightBackground ? 'text-black' : 'text-yellow-300'}`} />
+                            )}
+                          </>
+                        )}
                         {isToday && (
                           <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-ping" />
                         )}
@@ -1219,6 +1326,40 @@ export default function App() {
                         <div className="mt-4">
                           <QuestionButtons onUpdate={(amount) => updateHistoryCount(selectedHistoryDate.dateKey, selectedHistoryDate.count + amount)} isTestMode={isTestMode} isWarningMode={isWarningMode} isSleepMode={isSleepMode} isHistoryModal={true} />
                         </div>
+                      )}
+                      {isTestMode && !selectedHistoryDate.isExamDay && (
+                        <label className="mt-2 flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(practiceTestCompletionDates[selectedHistoryDate.dateKey])}
+                            onChange={(e) => {
+                              const { dateKey } = selectedHistoryDate;
+                              const checked = e.target.checked;
+                              const wasChecked = Boolean(practiceTestCompletionDates[dateKey]);
+                              if (checked === wasChecked) return;
+
+                              setPracticeTestCompletionDates((prev) => {
+                                const next = { ...prev };
+                                if (checked) {
+                                  next[dateKey] = true;
+                                } else {
+                                  delete next[dateKey];
+                                }
+                                return next;
+                              });
+
+                              setTotalPracticeTests((prev) => {
+                                const next = Math.max(0, prev + (checked ? 1 : -1));
+                                if (checked && next > prev) {
+                                  celebratePracticeTestAchievements(next);
+                                }
+                                return next;
+                              });
+                            }}
+                            className="h-4 w-4"
+                          />
+                          Practice Test complete?
+                        </label>
                       )}
                     </div>
                   )}
@@ -1468,7 +1609,7 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Weekly Mission reset removed */}
+                  {/* Daily mission resets automatically via date-based completion */}
 
                   {isTestMode && (
                     <>
