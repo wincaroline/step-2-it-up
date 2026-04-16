@@ -1,0 +1,46 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Special+Elite&family=Space+Mono:wght@400;700&display=swap');
+
+@theme {
+  --font-horror: "Special Elite", serif;
+  --font-serious: "Space Mono", monospace;
+}
+
+@layer base {
+  .warning-mode {
+    font-family: monospace !important;
+    font-weight: bold !important;
+    color: rgba(255, 255, 255, 0.64) !important;
+  }
+  .warning-mode .header-text {
+    font-family: monospace !important;
+    font-weight: bold !important;
+    color: rgba(255, 255, 255, 0.8) !important;
+  }
+  .warning-mode h1, .warning-mode h2, .warning-mode h3, .warning-mode .font-black {
+    font-family: monospace !important;
+    font-weight: bold !important;
+  }
+  .warning-mode .text-black {
+    color: #000 !important;
+  }
+
+  @keyframes header-time-warning-flash {
+    0%,
+    100% {
+      opacity: 1;
+      text-shadow:
+        0 0 10px rgba(248, 113, 113, 0.95),
+        0 0 22px rgba(220, 38, 38, 0.75);
+    }
+    50% {
+      opacity: 0.3;
+      text-shadow: 0 0 4px rgba(185, 28, 28, 0.5);
+    }
+  }
+
+  .warning-mode .header-time-warning {
+    color: #ef4444 !important;
+    animation: header-time-warning-flash 0.85s ease-in-out infinite;
+  }
+}
