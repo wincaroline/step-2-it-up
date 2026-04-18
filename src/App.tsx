@@ -165,7 +165,13 @@ export default function App() {
   const todayKey = dateKeyFromDate(effectiveTime);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
 
-  const checkMilestones = (newDaily: number, newTotal: number, newHistory: Record<string, number> = history) => {
+  const checkMilestones = (
+    newDaily: number,
+    newTotal: number,
+    newHistory: Record<string, number> = history,
+    practiceTestsForAchievementCheck?: number
+  ) => {
+    const practiceTestsUsed = practiceTestsForAchievementCheck ?? totalPracticeTests;
     // 1. Check for level up
     let newLevelIndex = 0;
     for (let i = LEVELS.length - 1; i >= 0; i--) {
@@ -189,7 +195,11 @@ export default function App() {
     // 2. Check for achievements (merge today's count so streak math sees the value from this click)
     const todayStr = `${effectiveTime.getFullYear()}-${String(effectiveTime.getMonth() + 1).padStart(2, '0')}-${String(effectiveTime.getDate()).padStart(2, '0')}`;
     const historyForAchievements = { ...newHistory, [todayStr]: newDaily };
-    const newlyAchieved = ACHIEVEMENTS.filter(a => getAchievementStatus(a, newTotal, historyForAchievements, effectiveTime, totalPracticeTests) && !lastAchievedIds.includes(a.id));
+    const newlyAchieved = ACHIEVEMENTS.filter(
+      (a) =>
+        getAchievementStatus(a, newTotal, historyForAchievements, effectiveTime, practiceTestsUsed) &&
+        !lastAchievedIds.includes(a.id)
+    );
     if (newlyAchieved.length > 0) {
       const latest = newlyAchieved[newlyAchieved.length - 1];
       setSelectedAchievement(latest);
@@ -367,6 +377,12 @@ export default function App() {
   }, [practiceTestCompletionDates, totalPracticeTests]);
 
   useEffect(() => {
+    const n = Object.keys(practiceTestCompletionDates).length;
+    if (n === 0) return;
+    setTotalPracticeTests((prev) => (n > prev ? n : prev));
+  }, [practiceTestCompletionDates]);
+
+  useEffect(() => {
     localStorage.setItem('practiceTestScores', JSON.stringify(practiceTestScores));
   }, [practiceTestScores]);
 
@@ -390,7 +406,7 @@ export default function App() {
   }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, selectedHistoryDate]);
 
   // --- Handlers ---
-  const addQuestions = (amount: number) => {
+  const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number) => {
     const newDaily = Math.max(0, dailyQuestions + amount);
     const diff = newDaily - dailyQuestions;
     const todayStrForRecord = dateKeyFromDate(effectiveTime);
@@ -452,7 +468,7 @@ export default function App() {
     setTotalQuestions(newTotal);
     
     // Check for milestones directly in the click handler to satisfy browser audio requirements
-    checkMilestones(newDaily, newTotal);
+    checkMilestones(newDaily, newTotal, history, practiceTestsForAchievementCheck);
   };
 
   const triggerModerateCelebration = () => {
@@ -619,6 +635,13 @@ export default function App() {
       if (!Number.isNaN(p)) parsedScore = p;
     }
 
+    const wasAlreadyCompletedForMission =
+      practiceTestEntryIntent === 'completed' ? Boolean(practiceTestCompletionDates[todayKey]) : false;
+    const willIncrementPracticeCount =
+      practiceTestEntryIntent === 'adminPlus' ||
+      (practiceTestEntryIntent === 'completed' && !wasAlreadyCompletedForMission);
+    const practiceTestsAfterSubmit = totalPracticeTests + (willIncrementPracticeCount ? 1 : 0);
+
     setPracticeTestScores((prev) => {
       const next = { ...prev };
       if (parsedScore !== undefined) next[todayKey] = parsedScore;
@@ -627,12 +650,11 @@ export default function App() {
     });
 
     if (q > 0) {
-      addQuestions(q);
+      addQuestions(q, practiceTestsAfterSubmit);
     }
 
     if (practiceTestEntryIntent === 'completed') {
-      const wasAlreadyCompleted = Boolean(practiceTestCompletionDates[todayKey]);
-      if (!wasAlreadyCompleted) {
+      if (!wasAlreadyCompletedForMission) {
         setPracticeTestCompletionDates((prev) => ({ ...prev, [todayKey]: true }));
         setTotalPracticeTests((prev) => {
           const next = prev + 1;
