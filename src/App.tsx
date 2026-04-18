@@ -2,34 +2,28 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { 
-  Fish, 
-  Waves, 
   Trophy, 
   ChevronUp, 
-  ChevronDown, 
   Plus,
   Minus,
   Zap, 
   Anchor, 
-  Shell, 
   Star,
-  Music,
   Volume2,
   VolumeX,
   Settings,
   Trash2,
   Calendar,
-  Smile,
   X,
   ClipboardCheck,
   BookOpen,
   TrendingUp,
   Award,
-  Flame
+  Flame,
 } from 'lucide-react';
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
-import { GraphicMap, SeaweedGraphic, CoralGraphic } from './components/Graphics';
+import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
 import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';

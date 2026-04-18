@@ -2,7 +2,6 @@
 import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { GraphicMap } from './Graphics';
-import { LEVELS } from '../constants';
 
 export const Bubble = React.memo(function Bubble({ delay, size }: { delay: number; size: number; key?: React.Key }) {
   return (
@@ -32,8 +31,6 @@ export const Bubble = React.memo(function Bubble({ delay, size }: { delay: numbe
 
 export const SeaCreature = React.memo(function SeaCreature({ graphic, delay, y }: { graphic: string; delay: number; y: string }) {
   const Graphic = GraphicMap[graphic];
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const levelObj = LEVELS.find(l => l.name === graphic);
   const duration = useMemo(() => 15 + Math.random() * 10, []);
   
   return (

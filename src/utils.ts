@@ -48,13 +48,11 @@ export function dateKeyFromDate(d: Date) {
 }
 
 export function calculateCurrentStreak(history: Record<string, number>, referenceDate: Date = new Date()): number {
-  const getDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  
   let streak = 0;
   let currentDate = new Date(referenceDate);
-  
+
   while (true) {
-    const dateStr = getDateKey(currentDate);
+    const dateStr = dateKeyFromDate(currentDate);
     if (history[dateStr] && history[dateStr] >= 10) {
       streak++;
       currentDate.setDate(currentDate.getDate() - 1);
