@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { 
@@ -24,15 +24,25 @@ import {
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
-import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls } from './utils';
+import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls, buildPracticeTestChartSeries } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
 import { QuestionButtons } from './components/QuestionButtons';
+import { PracticeTestScoresChart, type PracticeTestChartPress } from './components/PracticeTestScoresChart';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
 type LogWinTier = 60 | 70 | 80;
+
+type GreatProgressPendingState = {
+  id: number;
+  bonusQuestions: number;
+  deltaPoints: number;
+  previousScore: number;
+  newScore: number;
+  highlightDateKey: string;
+};
 
 export default function App() {
   // --- State ---
@@ -143,6 +153,17 @@ export default function App() {
   const [practiceTestEntryIntent, setPracticeTestEntryIntent] = useState<'completed' | 'adminPlus' | null>(null);
   const [practiceTestEntryQuestions, setPracticeTestEntryQuestions] = useState('');
   const [practiceTestEntryScore, setPracticeTestEntryScore] = useState('');
+  const [greatProgressPending, setGreatProgressPending] = useState<GreatProgressPendingState | null>(null);
+  const [showGreatProgressModal, setShowGreatProgressModal] = useState(false);
+  const [greatProgressSnapshot, setGreatProgressSnapshot] = useState<Omit<GreatProgressPendingState, 'id'> | null>(null);
+  const greatProgressBonusAppliedIds = useRef<Set<number>>(new Set());
+  const [practiceScoreSpotlight, setPracticeScoreSpotlight] = useState<{
+    dateKey: string;
+    testNumber: number;
+    draft: string;
+    isLatest: boolean;
+    hadScore: boolean;
+  } | null>(null);
   const [adminHistoryPracticeScoreDraft, setAdminHistoryPracticeScoreDraft] = useState('');
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [goalMessage, setGoalMessage] = useState("");
@@ -172,6 +193,29 @@ export default function App() {
   const effectiveTime = simulatedTime || currentTime;
   const todayKey = dateKeyFromDate(effectiveTime);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
+
+  const practiceTestChartSeries = useMemo(
+    () => buildPracticeTestChartSeries(practiceTestCompletionDates, practiceTestScores),
+    [practiceTestCompletionDates, practiceTestScores]
+  );
+
+  const practiceTestScoreSeries = useMemo(
+    () =>
+      practiceTestChartSeries
+        .filter((e) => e.score !== null)
+        .map((e) => ({ dateKey: e.dateKey, testNumber: e.testNumber, score: e.score as number })),
+    [practiceTestChartSeries]
+  );
+
+  const practiceChartSalmonGlow = useMemo(() => {
+    const scored = practiceTestChartSeries.filter((e) => e.score !== null);
+    if (scored.length < 2) return false;
+    const lastEntry = practiceTestChartSeries[practiceTestChartSeries.length - 1];
+    if (lastEntry.score === null) return false;
+    return (
+      scored[scored.length - 1].score! > scored[scored.length - 2].score!
+    );
+  }, [practiceTestChartSeries]);
 
   const checkMilestones = (
     newDaily: number,
@@ -351,6 +395,8 @@ export default function App() {
       showPracticeTestEntryModal ||
       showLogWinCountModal ||
       showLogWinCelebrateModal ||
+      showGreatProgressModal ||
+      Boolean(practiceScoreSpotlight) ||
       Boolean(selectedHistoryDate);
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -360,7 +406,7 @@ export default function App() {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, showLogWinCountModal, showLogWinCelebrateModal, selectedHistoryDate]);
+  }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, showLogWinCountModal, showLogWinCelebrateModal, showGreatProgressModal, practiceScoreSpotlight, selectedHistoryDate]);
 
   // --- Handlers ---
   const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number) => {
@@ -428,6 +474,35 @@ export default function App() {
     checkMilestones(newDaily, newTotal, history, practiceTestsForAchievementCheck);
   };
 
+  useEffect(() => {
+    if (!greatProgressPending) return;
+    if (showAchievementCelebration) return;
+    if (greatProgressBonusAppliedIds.current.has(greatProgressPending.id)) return;
+    greatProgressBonusAppliedIds.current.add(greatProgressPending.id);
+
+    const p = greatProgressPending;
+    setGreatProgressPending(null);
+    addQuestions(p.bonusQuestions);
+    setGreatProgressSnapshot({
+      bonusQuestions: p.bonusQuestions,
+      deltaPoints: p.deltaPoints,
+      previousScore: p.previousScore,
+      newScore: p.newScore,
+      highlightDateKey: p.highlightDateKey,
+    });
+    setShowGreatProgressModal(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: run only when achievement UI clears after practice-test submit
+  }, [greatProgressPending, selectedAchievement, showAchievementCelebration]);
+
+  const dismissAchievementView = () => {
+    setSelectedAchievement(null);
+    setShowAchievementCelebration(false);
+    if (levelMusic) {
+      levelMusic.pause();
+      setLevelMusic(null);
+    }
+  };
+
   const openLogWinTier = (tier: LogWinTier) => {
     setLogWinTier(tier);
     setLogWinQuestionDraft('');
@@ -478,6 +553,11 @@ export default function App() {
     setPracticeTestCompletionDates({});
     setPracticeTestScores({});
     setTotalPracticeTests(0);
+    setGreatProgressPending(null);
+    setShowGreatProgressModal(false);
+    setGreatProgressSnapshot(null);
+    greatProgressBonusAppliedIds.current.clear();
+    setPracticeScoreSpotlight(null);
     setHistory({});
     setLastAchievedIds(['plankton']);
     setIsTestMode(false);
@@ -616,6 +696,24 @@ export default function App() {
     });
   };
 
+  const handlePracticeChartPress = useCallback((payload: PracticeTestChartPress) => {
+    setPracticeScoreSpotlight({
+      dateKey: payload.dateKey,
+      testNumber: payload.testNumber,
+      draft: payload.score !== null ? String(payload.score) : '',
+      isLatest: payload.isLatest,
+      hadScore: payload.score !== null,
+    });
+  }, []);
+
+  const dismissPracticeScoreSpotlight = useCallback(() => setPracticeScoreSpotlight(null), []);
+
+  const savePracticeScoreSpotlight = () => {
+    if (!practiceScoreSpotlight) return;
+    applyPracticeTestScoreForDate(practiceScoreSpotlight.dateKey, practiceScoreSpotlight.draft.trim());
+    setPracticeScoreSpotlight(null);
+  };
+
   const submitPracticeTestEntry = () => {
     if (!practiceTestEntryIntent) return;
     const q = Math.max(0, Math.floor(Number(practiceTestEntryQuestions)) || 0);
@@ -624,6 +722,42 @@ export default function App() {
     if (scoreRaw !== '') {
       const p = parseFloat(scoreRaw);
       if (!Number.isNaN(p)) parsedScore = p;
+    }
+
+    const prevScores = practiceTestScores;
+    const prevCompletionDates = practiceTestCompletionDates;
+
+    let previousScore: number | undefined;
+    const priorDates = Object.keys(prevCompletionDates).filter((d) => d < todayKey).sort();
+    for (let i = priorDates.length - 1; i >= 0; i--) {
+      const v = prevScores[priorDates[i]];
+      if (v !== undefined) {
+        previousScore = v;
+        break;
+      }
+    }
+    if (previousScore === undefined && prevScores[todayKey] !== undefined) {
+      previousScore = prevScores[todayKey];
+    }
+
+    let greatProgressQueued: GreatProgressPendingState | null = null;
+    if (
+      parsedScore !== undefined &&
+      previousScore !== undefined &&
+      parsedScore > previousScore
+    ) {
+      const deltaPoints = parsedScore - previousScore;
+      const bonusQuestions = Math.round(deltaPoints * 20);
+      if (bonusQuestions > 0) {
+        greatProgressQueued = {
+          id: Date.now() + Math.random(),
+          bonusQuestions,
+          deltaPoints,
+          previousScore,
+          newScore: parsedScore,
+          highlightDateKey: todayKey,
+        };
+      }
     }
 
     const wasAlreadyCompletedForMission =
@@ -665,6 +799,10 @@ export default function App() {
     setPracticeTestEntryIntent(null);
     setPracticeTestEntryQuestions('');
     setPracticeTestEntryScore('');
+
+    if (greatProgressQueued) {
+      setGreatProgressPending(greatProgressQueued);
+    }
   };
 
   const cancelPracticeTestEntry = () => {
@@ -1188,6 +1326,17 @@ export default function App() {
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Record Questions In Day</span>
               </div>
             </div>
+
+            <div className="border-t border-white/20 pt-6 space-y-4">
+              <h3 className="text-center text-lg font-black uppercase tracking-[0.2em] text-white drop-shadow-md">
+                Practice Test Scores
+              </h3>
+              <PracticeTestScoresChart
+                series={practiceTestChartSeries}
+                salmonGlow={practiceChartSalmonGlow}
+                onPointPress={handlePracticeChartPress}
+              />
+            </div>
           </section>
           <AchievementsSection 
             totalQuestions={totalQuestions} 
@@ -1457,6 +1606,180 @@ export default function App() {
                   className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white border-b-4 border-cyan-900 hover:bg-cyan-500 transition-all active:scale-[0.98]"
                 >
                   Continue
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showGreatProgressModal && greatProgressSnapshot && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[96] flex items-center justify-center p-6 bg-[#001a2c]/95 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 24 }}
+              className="bg-white rounded-[2rem] max-w-md w-full border-4 border-emerald-400 shadow-2xl p-8 text-left max-h-[90vh] overflow-y-auto"
+            >
+              <h3 className="text-2xl font-black uppercase tracking-tight text-emerald-950 mb-2 text-center">
+                Great Progress!
+              </h3>
+              <p className="text-sm text-gray-600 font-medium mb-4 text-center">
+                Your practice test score beat your previous best logged score. Here is your full trend; the latest score is highlighted.
+              </p>
+
+              <div className="mb-6 rounded-2xl border-2 border-gray-100 bg-gray-50 p-4">
+                <h4 className="text-center text-xs font-black uppercase tracking-[0.2em] text-gray-500 mb-3">
+                  Practice Test Scores
+                </h4>
+                <PracticeTestScoresChart
+                  series={practiceTestChartSeries}
+                  highlightDateKey={greatProgressSnapshot.highlightDateKey}
+                  salmonGlow
+                  className="[&_svg]:max-h-[300px]"
+                />
+                <div className="mt-4 overflow-hidden rounded-xl border border-gray-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-600">
+                        <th className="px-3 py-2 text-left">Test #</th>
+                        <th className="px-3 py-2 text-right">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {practiceTestChartSeries.map((row) => {
+                        const hi = row.dateKey === greatProgressSnapshot.highlightDateKey;
+                        return (
+                          <tr
+                            key={row.dateKey}
+                            className={
+                              hi
+                                ? 'bg-emerald-100 font-black text-emerald-950'
+                                : 'bg-white text-gray-800'
+                            }
+                          >
+                            <td className="px-3 py-2 border-t border-gray-100">{row.testNumber}</td>
+                            <td className="px-3 py-2 text-right border-t border-gray-100">
+                              {row.score !== null ? row.score : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-emerald-50 border-2 border-emerald-200 px-4 py-4 mb-6">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700 mb-2">
+                  Bonus questions today
+                </p>
+                <p className="text-base font-bold text-emerald-950 leading-snug">
+                  +{greatProgressSnapshot.bonusQuestions} questions added to your daily question count ({greatProgressSnapshot.deltaPoints}{' '}
+                  point{greatProgressSnapshot.deltaPoints === 1 ? '' : 's'} improvement × 20). Score went from{' '}
+                  {greatProgressSnapshot.previousScore} to {greatProgressSnapshot.newScore}.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowGreatProgressModal(false);
+                  setGreatProgressSnapshot(null);
+                }}
+                className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-emerald-600 text-white border-b-4 border-emerald-900 hover:bg-emerald-500 transition-all active:scale-[0.98]"
+              >
+                Awesome!
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {practiceScoreSpotlight && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[93] flex items-center justify-center p-6 bg-[#001a2c]/95 backdrop-blur-md"
+            onClick={dismissPracticeScoreSpotlight}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 24 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`bg-white rounded-[2rem] w-full border-4 border-cyan-400 shadow-2xl p-8 text-left max-h-[90vh] overflow-y-auto ${
+                practiceScoreSpotlight.isLatest ? 'max-w-lg' : 'max-w-sm'
+              }`}
+            >
+              {practiceScoreSpotlight.isLatest ? (
+                <>
+                  <div className="flex justify-center mb-4">
+                    <img
+                      src={graphicAsset('surfingsalmon')}
+                      alt=""
+                      className="w-40 h-40 object-contain drop-shadow-lg"
+                    />
+                  </div>
+                  <h3 className="text-2xl font-black uppercase tracking-tight text-blue-950 mb-2 text-center">
+                    Keep riding that wave!
+                  </h3>
+                  <p className="text-xs font-black uppercase tracking-widest text-cyan-600 text-center mb-1">
+                    Latest test (#{practiceScoreSpotlight.testNumber})
+                  </p>
+                  <p className="text-sm text-gray-600 font-medium mb-6 text-center">
+                    Every practice test builds momentum — log or update your score below anytime.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
+                    {practiceScoreSpotlight.hadScore ? 'Edit practice test score' : 'Add practice test score'}
+                  </h3>
+                  <p className="text-sm text-gray-600 font-medium mb-6">
+                    Test #{practiceScoreSpotlight.testNumber}
+                  </p>
+                </>
+              )}
+
+              <label
+                htmlFor="practice-score-spotlight-input"
+                className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1"
+              >
+                Score
+              </label>
+              <input
+                id="practice-score-spotlight-input"
+                type="text"
+                inputMode="decimal"
+                value={practiceScoreSpotlight.draft}
+                onChange={(e) =>
+                  setPracticeScoreSpotlight((prev) =>
+                    prev ? { ...prev, draft: e.target.value } : prev
+                  )
+                }
+                placeholder="e.g. 228"
+                className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400 mb-6"
+              />
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={dismissPracticeScoreSpotlight}
+                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={savePracticeScoreSpotlight}
+                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white border-b-4 border-cyan-900 hover:bg-cyan-500 transition-all active:scale-[0.98]"
+                >
+                  Save
                 </button>
               </div>
             </motion.div>
@@ -2278,14 +2601,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => {
-                setSelectedAchievement(null);
-                setShowAchievementCelebration(false);
-                if (levelMusic) {
-                  levelMusic.pause();
-                  setLevelMusic(null);
-                }
-              }}
+              onClick={dismissAchievementView}
               className="absolute inset-0 bg-black/90 backdrop-blur-xl"
             />
             <motion.div 
@@ -2306,14 +2622,7 @@ export default function App() {
                 </div>
               )}
               <button 
-                onClick={() => {
-                  setSelectedAchievement(null);
-                  setShowAchievementCelebration(false);
-                  if (levelMusic) {
-                    levelMusic.pause();
-                    setLevelMusic(null);
-                  }
-                }}
+                onClick={dismissAchievementView}
                 className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full border border-white/20 transition-all z-30 shadow-xl"
               >
                 <X className="w-6 h-6" />
@@ -2364,14 +2673,7 @@ export default function App() {
 
                       {showAchievementCelebration && (
                         <button 
-                          onClick={() => {
-                            setSelectedAchievement(null);
-                            setShowAchievementCelebration(false);
-                            if (levelMusic) {
-                              levelMusic.pause();
-                              setLevelMusic(null);
-                            }
-                          }}
+                          onClick={dismissAchievementView}
                           className="mt-4 w-full py-4 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 uppercase tracking-widest"
                         >
                           Keep Swimming!

@@ -27,6 +27,7 @@ export function collectAllGraphicAssetUrls(): string[] {
     'scholarsalmon',
     'rockstarsalmon',
     'doublethumbsupsalmon',
+    'surfingsalmon',
   ];
   extras.forEach((n) => names.add(n));
 
@@ -80,6 +81,34 @@ export function calculateCurrentStreak(history: Record<string, number>, referenc
 
 export function streakFlameVariantFromCount(streak: number): StreakFlameVariant {
   return Math.min(5, Math.max(1, streak)) as StreakFlameVariant;
+}
+
+export type PracticeTestScorePoint = { dateKey: string; testNumber: number; score: number };
+
+/** Every completed practice test, with score or null if not logged yet. */
+export type PracticeTestChartEntry = { dateKey: string; testNumber: number; score: number | null };
+
+export function buildPracticeTestChartSeries(
+  completionDates: Record<string, true>,
+  scores: Record<string, number>
+): PracticeTestChartEntry[] {
+  const sorted = Object.keys(completionDates).sort();
+  return sorted.map((dateKey, index) => {
+    const raw = scores[dateKey];
+    const score =
+      raw !== undefined && typeof raw === 'number' && !Number.isNaN(raw) ? raw : null;
+    return { dateKey, testNumber: index + 1, score };
+  });
+}
+
+/** Entries that include a numeric score (for trend tables, bonuses, etc.). */
+export function buildPracticeTestScoreSeries(
+  completionDates: Record<string, true>,
+  scores: Record<string, number>
+): PracticeTestScorePoint[] {
+  return buildPracticeTestChartSeries(completionDates, scores)
+    .filter((e) => e.score !== null)
+    .map((e) => ({ dateKey: e.dateKey, testNumber: e.testNumber, score: e.score as number }));
 }
 
 export const PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS: Record<string, number> = {
