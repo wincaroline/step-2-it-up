@@ -1,4 +1,5 @@
 
+import { ACHIEVEMENTS, LEVELS, LEVEL_VARIANTS } from './constants';
 import { StreakFlameVariant, Achievement } from './types';
 
 /** URL for a file in `public/` (respects Vite `base`, e.g. GitHub Pages project subpath). */
@@ -9,6 +10,36 @@ export function publicAsset(path: string): string {
 
 export function graphicAsset(name: string): string {
   return publicAsset(`assets/graphic_${name}.webp`);
+}
+
+/** Every graphic slug referenced by levels, variants, achievements, plus UI extras — for cache warming. */
+export function collectAllGraphicAssetUrls(): string[] {
+  const names = new Set<string>();
+
+  LEVELS.forEach((l) => names.add(l.graphic));
+  Object.values(LEVEL_VARIANTS).forEach((variants) => variants.forEach((v) => names.add(v)));
+  ACHIEVEMENTS.forEach((a) => names.add(a.image));
+
+  const extras = [
+    'salmonthumbsup',
+    'sleepingsalmon',
+    'anglerfishangry',
+    'scholarsalmon',
+    'rockstarsalmon',
+    'doublethumbsupsalmon',
+  ];
+  extras.forEach((n) => names.add(n));
+
+  return [...names].map((name) => graphicAsset(name));
+}
+
+/** Load images into the HTTP cache early so modals and level art appear without waiting on first paint. */
+export function preloadGraphicUrls(urls: string[]): void {
+  urls.forEach((src) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = src;
+  });
 }
 
 

@@ -30,11 +30,13 @@ import {
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { GraphicMap, SeaweedGraphic, CoralGraphic } from './components/Graphics';
-import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset } from './utils';
+import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
 import type { Level, Achievement } from './types';
+
+type LogWinTier = 60 | 70 | 80;
 
 export default function App() {
   // --- State ---
@@ -132,6 +134,16 @@ export default function App() {
     return {};
   });
   const [showPracticeTestEntryModal, setShowPracticeTestEntryModal] = useState(false);
+  const [showLogWinCountModal, setShowLogWinCountModal] = useState(false);
+  const [logWinTier, setLogWinTier] = useState<LogWinTier | null>(null);
+  const [logWinQuestionDraft, setLogWinQuestionDraft] = useState('');
+  const [showLogWinCelebrateModal, setShowLogWinCelebrateModal] = useState(false);
+  const [logWinCelebrate, setLogWinCelebrate] = useState<{
+    bonusQuestions: number;
+    tier: LogWinTier;
+    questionsCovered: number;
+    newDailyTotal: number;
+  } | null>(null);
   const [practiceTestEntryIntent, setPracticeTestEntryIntent] = useState<'completed' | 'adminPlus' | null>(null);
   const [practiceTestEntryQuestions, setPracticeTestEntryQuestions] = useState('');
   const [practiceTestEntryScore, setPracticeTestEntryScore] = useState('');
@@ -329,16 +341,9 @@ export default function App() {
 
   // --- Effects ---
   useEffect(() => {
-    // Pre-load all level graphics and other key assets
-    const imagesToPreload = [
-      ...LEVELS.slice(0, 3).map(l => graphicAsset(l.graphic)),
-      graphicAsset('salmonthumbsup')
-    ];
-    
-    imagesToPreload.forEach(src => {
-      const img = new Image();
-      img.src = src;
-    });
+    // Warm the HTTP cache for every graphic used in levels, achievements, variants, and modals
+    // so first open (e.g. Log a Win celebration) does not wait on a cold network fetch.
+    preloadGraphicUrls(collectAllGraphicAssetUrls());
   }, []);
 
   useEffect(() => {
@@ -394,6 +399,8 @@ export default function App() {
       showSettingsModal ||
       showImageViewer ||
       showPracticeTestEntryModal ||
+      showLogWinCountModal ||
+      showLogWinCelebrateModal ||
       Boolean(selectedHistoryDate);
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -403,7 +410,7 @@ export default function App() {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, selectedHistoryDate]);
+  }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, showLogWinCountModal, showLogWinCelebrateModal, selectedHistoryDate]);
 
   // --- Handlers ---
   const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number) => {
@@ -469,6 +476,40 @@ export default function App() {
     
     // Check for milestones directly in the click handler to satisfy browser audio requirements
     checkMilestones(newDaily, newTotal, history, practiceTestsForAchievementCheck);
+  };
+
+  const openLogWinTier = (tier: LogWinTier) => {
+    setLogWinTier(tier);
+    setLogWinQuestionDraft('');
+    setShowLogWinCountModal(true);
+  };
+
+  const cancelLogWinCountModal = () => {
+    setShowLogWinCountModal(false);
+    setLogWinTier(null);
+    setLogWinQuestionDraft('');
+  };
+
+  const confirmLogWin = () => {
+    if (!logWinTier) return;
+    const n = parseInt(logWinQuestionDraft.replace(/,/g, ''), 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const bonusQuestions = Math.round((logWinTier / 100) * n);
+    if (bonusQuestions <= 0) return;
+
+    const newDailyTotal = dailyQuestions + bonusQuestions;
+    addQuestions(bonusQuestions);
+    setLogWinCelebrate({
+      bonusQuestions,
+      tier: logWinTier,
+      questionsCovered: n,
+      newDailyTotal,
+    });
+    setShowLogWinCountModal(false);
+    setLogWinTier(null);
+    setLogWinQuestionDraft('');
+    triggerModerateCelebration();
+    setShowLogWinCelebrateModal(true);
   };
 
   const triggerModerateCelebration = () => {
@@ -1004,6 +1045,130 @@ export default function App() {
             />
           </div>
 
+          {/* Practice Test Reminder */}
+          <div className={`w-full p-6 rounded-[3rem] border-4 shadow-2xl flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 ${
+            isPracticeTestMissionCompleteToday && isWarningMode
+              ? 'bg-white/80 backdrop-blur-xl text-black border-white/80'
+              : isPracticeTestMissionCompleteToday
+                ? 'bg-green-500/80 backdrop-blur-xl text-white border-white/40'
+                : isWarningMode
+                  ? 'bg-red-600/80 backdrop-blur-xl text-white border-red-500/60'
+                  : 'bg-yellow-400/80 backdrop-blur-xl text-black border-white/40'
+          }`}>
+            <div className={`${
+              isPracticeTestMissionCompleteToday
+                ? isWarningMode
+                  ? 'bg-green-600 text-white'
+                  : 'bg-white text-green-500'
+                : 'bg-black text-white'
+            } p-3 rounded-2xl shadow-lg transition-colors`}>
+              {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
+            </div>
+            <div className="flex flex-col flex-1 text-center sm:text-left">
+              <span className="text-xs opacity-60 tracking-widest">
+                {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : 'Daily Mission'}
+              </span>
+              <span className={isPracticeTestMissionCompleteToday ? 'text-base' : ''}>
+                {isPracticeTestMissionCompleteToday ? 'Daily Mission Complete' : '1 Practice Test!'}
+              </span>
+              {isPracticeTestMissionCompleteToday && (
+                <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
+              )}
+            </div>
+            <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+              {isTestMode && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Decrease practice test count"
+                    onClick={() => setTotalPracticeTests((prev) => Math.max(0, prev - 1))}
+                    className="shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-black/10 text-current border-2 border-current/20 hover:bg-black/20 active:scale-95 transition-all"
+                  >
+                    <Minus className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Increase practice test count"
+                    onClick={() => {
+                      setPracticeTestEntryIntent('adminPlus');
+                      setPracticeTestEntryQuestions('');
+                      setPracticeTestEntryScore('');
+                      setShowPracticeTestEntryModal(true);
+                    }}
+                    className="shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-black/10 text-current border-2 border-current/20 hover:bg-black/20 active:scale-95 transition-all"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </>
+              )}
+              {!isPracticeTestMissionCompleteToday && (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const wasAlreadyCompleted = Boolean(practiceTestCompletionDates[todayKey]);
+                    if (wasAlreadyCompleted) return;
+                    setPracticeTestEntryIntent('completed');
+                    setPracticeTestEntryQuestions('');
+                    setPracticeTestEntryScore('');
+                    setShowPracticeTestEntryModal(true);
+                  }}
+                  className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                >
+                  Completed
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Log a Win */}
+          <section className="w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-white/40 shadow-2xl flex flex-col gap-6">
+            <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">Log a Win</h2>
+            <p className="text-center text-white/80 font-bold text-sm max-w-md mx-auto">
+              Tap your accuracy tier, then enter how many questions that block covered. We will add bonus questions to today&apos;s total based on your tier.
+            </p>
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full min-w-0">
+              <button
+                type="button"
+                onClick={() => openLogWinTier(60)}
+                className={`w-full min-w-0 py-4 sm:py-5 px-2 sm:px-4 rounded-2xl font-black text-[10px] sm:text-base md:text-xl uppercase tracking-tight sm:tracking-wide border-4 shadow-lg transition-all active:scale-[0.98] leading-tight ${
+                  isSleepMode
+                    ? 'bg-slate-700/80 border-slate-500 text-white hover:bg-slate-600'
+                    : isWarningMode
+                      ? 'bg-red-950/80 border-red-600 text-white hover:bg-red-900'
+                      : 'bg-gradient-to-r from-amber-400 to-orange-400 border-amber-200 text-slate-900 hover:brightness-105'
+                }`}
+              >
+                &gt; 60% Correct
+              </button>
+              <button
+                type="button"
+                onClick={() => openLogWinTier(70)}
+                className={`w-full min-w-0 py-4 sm:py-5 px-2 sm:px-4 rounded-2xl font-black text-[10px] sm:text-base md:text-xl uppercase tracking-tight sm:tracking-wide border-4 shadow-lg transition-all active:scale-[0.98] leading-tight ${
+                  isSleepMode
+                    ? 'bg-slate-700/80 border-slate-500 text-white hover:bg-slate-600'
+                    : isWarningMode
+                      ? 'bg-red-950/80 border-red-600 text-white hover:bg-red-900'
+                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 border-cyan-200 text-slate-900 hover:brightness-105'
+                }`}
+              >
+                &gt; 70% Correct
+              </button>
+              <button
+                type="button"
+                onClick={() => openLogWinTier(80)}
+                className={`w-full min-w-0 py-4 sm:py-5 px-2 sm:px-4 rounded-2xl font-black text-[10px] sm:text-base md:text-xl uppercase tracking-tight sm:tracking-wide border-4 shadow-lg transition-all active:scale-[0.98] leading-tight ${
+                  isSleepMode
+                    ? 'bg-slate-700/80 border-slate-500 text-white hover:bg-slate-600'
+                    : isWarningMode
+                      ? 'bg-red-950/80 border-red-600 text-white hover:bg-red-900'
+                      : 'bg-gradient-to-r from-fuchsia-400 to-purple-500 border-fuchsia-200 text-white hover:brightness-105'
+                }`}
+              >
+                &gt; 80% Correct
+              </button>
+            </div>
+          </section>
+
           {/* Footer Stats */}
           <section className="w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-white/40 shadow-2xl space-y-6">
             <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">My Stats</h2>
@@ -1114,81 +1279,6 @@ export default function App() {
               </div>
             </div>
           </section>
-
-          {/* Practice Test Reminder */}
-          <div className={`w-full p-6 rounded-[3rem] border-4 shadow-2xl flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 ${
-            isPracticeTestMissionCompleteToday && isWarningMode
-              ? 'bg-white/80 backdrop-blur-xl text-black border-white/80'
-              : isPracticeTestMissionCompleteToday
-                ? 'bg-green-500/80 backdrop-blur-xl text-white border-white/40'
-                : isWarningMode
-                  ? 'bg-red-600/80 backdrop-blur-xl text-white border-red-500/60'
-                  : 'bg-yellow-400/80 backdrop-blur-xl text-black border-white/40'
-          }`}>
-            <div className={`${
-              isPracticeTestMissionCompleteToday
-                ? isWarningMode
-                  ? 'bg-green-600 text-white'
-                  : 'bg-white text-green-500'
-                : 'bg-black text-white'
-            } p-3 rounded-2xl shadow-lg transition-colors`}>
-              {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
-            </div>
-            <div className="flex flex-col flex-1 text-center sm:text-left">
-              <span className="text-xs opacity-60 tracking-widest">
-                {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : 'Daily Mission'}
-              </span>
-              <span className={isPracticeTestMissionCompleteToday ? 'text-base' : ''}>
-                {isPracticeTestMissionCompleteToday ? 'Daily Mission Complete' : '1 Practice Test!'}
-              </span>
-              {isPracticeTestMissionCompleteToday && (
-                <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
-              )}
-            </div>
-            <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
-              {isTestMode && (
-                <>
-                  <button
-                    type="button"
-                    aria-label="Decrease practice test count"
-                    onClick={() => setTotalPracticeTests((prev) => Math.max(0, prev - 1))}
-                    className="shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-black/10 text-current border-2 border-current/20 hover:bg-black/20 active:scale-95 transition-all"
-                  >
-                    <Minus className="w-5 h-5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Increase practice test count"
-                    onClick={() => {
-                      setPracticeTestEntryIntent('adminPlus');
-                      setPracticeTestEntryQuestions('');
-                      setPracticeTestEntryScore('');
-                      setShowPracticeTestEntryModal(true);
-                    }}
-                    className="shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-black/10 text-current border-2 border-current/20 hover:bg-black/20 active:scale-95 transition-all"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
-                </>
-              )}
-              {!isPracticeTestMissionCompleteToday && (
-                <button 
-                  type="button"
-                  onClick={() => {
-                    const wasAlreadyCompleted = Boolean(practiceTestCompletionDates[todayKey]);
-                    if (wasAlreadyCompleted) return;
-                    setPracticeTestEntryIntent('completed');
-                    setPracticeTestEntryQuestions('');
-                    setPracticeTestEntryScore('');
-                    setShowPracticeTestEntryModal(true);
-                  }}
-                  className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
-                >
-                  Completed
-                </button>
-              )}
-            </div>
-          </div>
           <AchievementsSection 
             totalQuestions={totalQuestions} 
             totalPracticeTests={totalPracticeTests}
@@ -1457,6 +1547,136 @@ export default function App() {
                   className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white border-b-4 border-cyan-900 hover:bg-cyan-500 transition-all active:scale-[0.98]"
                 >
                   Continue
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Log a Win: question count */}
+        {showLogWinCountModal && logWinTier && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[91] flex items-center justify-center p-6 bg-[#001a2c]/95 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 24 }}
+              className="bg-white rounded-[2rem] max-w-sm w-full border-4 border-cyan-400 shadow-2xl p-8 text-left"
+            >
+              <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
+                Questions at this accuracy
+              </h3>
+              <p className="text-sm text-gray-600 font-medium mb-6">
+                How many questions did your &gt; {logWinTier}% correct session cover?
+              </p>
+              <div className="mb-8">
+                <label htmlFor="log-win-q" className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
+                  Number of questions
+                </label>
+                <input
+                  id="log-win-q"
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  value={logWinQuestionDraft}
+                  onChange={(e) => setLogWinQuestionDraft(e.target.value)}
+                  placeholder="e.g. 40"
+                  className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={cancelLogWinCountModal}
+                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmLogWin}
+                  disabled={
+                    !Number.isFinite(parseInt(logWinQuestionDraft.replace(/,/g, ''), 10)) ||
+                    parseInt(logWinQuestionDraft.replace(/,/g, ''), 10) <= 0
+                  }
+                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white border-b-4 border-cyan-900 hover:bg-cyan-500 transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Confirm
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Log a Win: celebration */}
+        {showLogWinCelebrateModal && logWinCelebrate && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[92] flex items-center justify-center p-6 bg-[#001a2c]/90 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.5, y: 100 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.5, y: 100 }}
+              className="bg-white rounded-[3rem] max-w-sm lg:max-w-md w-full text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative max-h-[85vh] overflow-y-auto overflow-x-hidden"
+            >
+              <div className="w-full max-h-[250px] h-[250px] overflow-hidden rounded-t-[2.2rem] bg-cyan-50">
+                <motion.img
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  src={
+                    logWinCelebrate.tier === 80
+                      ? graphicAsset('rockstarsalmon')
+                      : logWinCelebrate.tier === 70
+                        ? graphicAsset('scholarsalmon')
+                        : graphicAsset('doublethumbsupsalmon')
+                  }
+                  alt=""
+                  className="block h-full w-full object-cover object-center"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              <div className="p-8 pt-6 relative z-10 space-y-5">
+                {logWinCelebrate.tier === 80 && (
+                  <h2 className="text-fuchsia-600 text-3xl sm:text-4xl font-black uppercase leading-none">
+                    You&apos;re a rockstar!
+                  </h2>
+                )}
+                <div className="space-y-2">
+                  <p className="text-cyan-800 font-bold text-base leading-snug">
+                    {logWinCelebrate.tier === 60 &&
+                      'Double Thumbs Up Salmon is beaming—you earned this accuracy and every bit of credit toward your streak.'}
+                    {logWinCelebrate.tier === 70 &&
+                      'Scholar Salmon tips their mortarboard: your discipline shows, and they could not be prouder of how you studied.'}
+                    {logWinCelebrate.tier === 80 &&
+                      'Rockstar Salmon is shouting encore—you crushed that block with style, and the reef is buzzing with pride.'}
+                  </p>
+                </div>
+                <div className="bg-cyan-50 p-4 rounded-2xl border-2 border-cyan-100 space-y-2 text-left">
+                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
+                    <span>Bonus questions ({logWinCelebrate.tier}% × {logWinCelebrate.questionsCovered} Q)</span>
+                    <span className="font-black tabular-nums">+{logWinCelebrate.bonusQuestions}</span>
+                  </div>
+                  <p className="text-cyan-700 text-sm font-medium">
+                    These {logWinCelebrate.bonusQuestions} bonus questions are added to your questions done today. You&apos;re now at{' '}
+                    <span className="font-black text-cyan-900">{logWinCelebrate.newDailyTotal}</span> for the day.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLogWinCelebrateModal(false);
+                    setLogWinCelebrate(null);
+                  }}
+                  className="w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl shadow-lg border-b-4 border-cyan-900 active:scale-95 transition-all"
+                >
+                  Awesome!
                 </button>
               </div>
             </motion.div>
