@@ -44,3 +44,48 @@
     animation: header-time-warning-flash 0.85s ease-in-out infinite;
   }
 }
+
+/**
+ * Frosted “ocean clay” panel — Question Tracker styling, reusable on other sections.
+ * Use `section-panel-ocean-frost` for frosted surface + clay shadows.
+ * Use `section-panel-ocean-frost-base` alone when layering custom shadows (e.g. achievement modal).
+ * Compose with padding + flex utilities (e.g. `p-6 flex flex-col gap-6`).
+ */
+@layer components {
+  .section-panel-ocean-frost-base {
+    /* Lighter tint + milder blur so background motion reads through */
+    @apply w-full bg-white/[0.028] backdrop-blur-xl rounded-[3rem];
+    @apply transition-all duration-500 relative overflow-hidden;
+  }
+
+  .section-panel-ocean-frost {
+    @apply w-full bg-white/[0.028] backdrop-blur-xl rounded-[3rem];
+    @apply transition-all duration-500 relative overflow-hidden;
+    box-shadow:
+      0 22px 50px -14px rgba(10, 22, 48, 0.3),
+      0 12px 32px -10px rgba(12, 26, 52, 0.18),
+      inset 0 1px 0 rgba(238, 246, 255, 0.34),
+      inset 0 12px 22px -8px rgba(214, 232, 255, 0.2),
+      inset 0 -18px 22px -10px rgba(8, 18, 42, 0.11),
+      inset 0 -34px 34px -18px rgba(12, 24, 46, 0.05);
+  }
+
+  /** Full-bleed overlay ring inside a panel (matches `rounded-[3rem]`). */
+  .section-panel-ocean-frost-overlay {
+    @apply absolute inset-0 rounded-[3rem] border-0 pointer-events-none;
+  }
+
+  .section-panel-ocean-frost-glow-sleep {
+    box-shadow:
+      0 0 0 6px rgba(96, 165, 250, 0.12),
+      0 0 36px rgba(96, 165, 250, 0.38);
+  }
+
+  .section-panel-ocean-frost-glow-warning {
+    box-shadow:
+      0 0 0 6px rgba(248, 113, 113, 0.12),
+      0 0 22px rgba(252, 165, 165, 0.75),
+      0 0 48px rgba(248, 113, 113, 0.45),
+      0 0 80px rgba(220, 38, 38, 0.3);
+  }
+}

@@ -30,7 +30,7 @@ export const LevelSection: React.FC<LevelSectionProps> = React.memo(({
   setShowLevelMap,
 }) => {
   return (
-    <section className="w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-white/40 shadow-2xl flex flex-col items-center text-center gap-6">
+    <section className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6">
       <div className="flex flex-col items-center">
         <div className={`font-black text-yellow-300 drop-shadow-sm uppercase tracking-[0.2em] leading-none header-text ${isWarningMode ? 'text-lg opacity-60' : 'text-2xl'}`}>
           Level {currentLevelIndex + 1} of 15

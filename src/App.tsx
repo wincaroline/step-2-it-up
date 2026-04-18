@@ -1030,12 +1030,12 @@ export default function App() {
         
         {/* Left Column: Progress & Actions */}
         <div className="flex flex-col gap-8">
-          {/* Question Tracker Section */}
-          <section className={`w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 shadow-2xl flex flex-col items-center text-center gap-6 transition-all duration-500 relative overflow-hidden ${
-            isSleepMode ? 'border-blue-400/40' : isWarningMode ? 'border-transparent' : 'border-white/40'
-          }`}>
+          {/* Question Tracker — uses `.section-panel-ocean-frost` (see index.css) */}
+          <section className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6">
             {(isWarningMode || isSleepMode) && (
-              <div className={`absolute inset-0 rounded-[3rem] border-4 pointer-events-none ${isSleepMode ? 'border-blue-400 shadow-[0_0_30px_rgba(96,165,250,0.4)] animate-pulse' : 'border-red-400 shadow-[0_0_18px_rgba(252,165,165,0.95),0_0_42px_rgba(248,113,113,0.85),0_0_72px_rgba(220,38,38,0.65),0_0_110px_rgba(127,29,29,0.45)] animate-pulse'}`} />
+              <div
+                className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
+              />
             )}
             <motion.div 
               key={dailyQuestions}
@@ -1077,8 +1077,10 @@ export default function App() {
           </section>
 
           {(isWarningMode || isSleepMode) && (
-            <section className="relative w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-transparent shadow-2xl flex flex-col items-center text-center gap-6 transition-all duration-500 relative overflow-hidden lg:hidden">
-              <div className={`absolute inset-0 rounded-[3rem] border-4 pointer-events-none ${isSleepMode ? 'border-blue-400 shadow-[0_0_30px_rgba(96,165,250,0.4)] animate-pulse' : 'border-red-400 shadow-[0_0_18px_rgba(252,165,165,0.95),0_0_42px_rgba(248,113,113,0.85),0_0_72px_rgba(220,38,38,0.65),0_0_110px_rgba(127,29,29,0.45)] animate-pulse'}`} />
+            <section className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 lg:hidden">
+              <div
+                className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
+              />
               <img 
                 src={isSleepMode ? graphicAsset('sleepingsalmon') : graphicAsset('anglerfishangry')} 
                 alt={isSleepMode ? "Sleeping Salmon" : "Anglerfish"} 
@@ -1107,15 +1109,28 @@ export default function App() {
           </div>
 
           {/* Practice Test Reminder */}
-          <div className={`w-full p-6 rounded-[3rem] border-4 shadow-2xl flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 ${
-            isPracticeTestMissionCompleteToday && isWarningMode
-              ? 'bg-white/80 backdrop-blur-xl text-black border-white/80'
-              : isPracticeTestMissionCompleteToday
-                ? 'bg-green-500/80 backdrop-blur-xl text-white border-white/40'
-                : isWarningMode
-                  ? 'bg-red-600/80 backdrop-blur-xl text-white border-red-500/60'
-                  : 'bg-yellow-400/80 backdrop-blur-xl text-black border-white/40'
-          }`}>
+          <div className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
+            <div
+              aria-hidden
+              className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
+                isPracticeTestMissionCompleteToday && isWarningMode
+                  ? 'bg-white/45'
+                  : isPracticeTestMissionCompleteToday
+                    ? 'bg-green-500/35'
+                    : isWarningMode
+                      ? 'bg-red-600/38'
+                      : 'bg-yellow-400/35'
+              }`}
+            />
+            <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+              isPracticeTestMissionCompleteToday && isWarningMode
+                ? 'text-black'
+                : isPracticeTestMissionCompleteToday
+                  ? 'text-white'
+                  : isWarningMode
+                    ? 'text-white'
+                    : 'text-black'
+            }`}>
             <div className={`${
               isPracticeTestMissionCompleteToday
                 ? isWarningMode
@@ -1163,10 +1178,11 @@ export default function App() {
                 </button>
               )}
             </div>
+            </div>
           </div>
 
           {/* Log a Win */}
-          <section className="w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-white/40 shadow-2xl flex flex-col gap-6">
+          <section className="section-panel-ocean-frost p-6 flex flex-col gap-6">
             <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">Log a Win</h2>
             <p className="text-center text-white/80 font-bold text-sm max-w-md mx-auto">
               Tap your accuracy tier, then enter how many questions that block covered. We will add bonus questions to today&apos;s total based on your tier.
@@ -1215,7 +1231,7 @@ export default function App() {
           </section>
 
           {/* Footer Stats */}
-          <section className="w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-white/40 shadow-2xl space-y-6">
+          <section className="section-panel-ocean-frost p-6 space-y-6">
             <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">My Stats</h2>
             <div className="grid grid-cols-2 gap-6">
               <div className="flex flex-col items-center text-center">
@@ -1348,8 +1364,10 @@ export default function App() {
         {/* Right Column: Level & Stats */}
         <div className="flex flex-col gap-8">
           {(isWarningMode || isSleepMode) && (
-            <section className="relative hidden lg:flex w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-transparent shadow-2xl flex-col items-center text-center gap-6 transition-all duration-500 relative overflow-hidden font-serious">
-              <div className={`absolute inset-0 rounded-[3rem] border-4 pointer-events-none ${isSleepMode ? 'border-blue-400 shadow-[0_0_30px_rgba(96,165,250,0.4)] animate-pulse' : 'border-red-400 shadow-[0_0_18px_rgba(252,165,165,0.95),0_0_42px_rgba(248,113,113,0.85),0_0_72px_rgba(220,38,38,0.65),0_0_110px_rgba(127,29,29,0.45)] animate-pulse'}`} />
+            <section className="section-panel-ocean-frost p-6 hidden lg:flex w-full flex-col items-center text-center gap-6 font-serious">
+              <div
+                className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
+              />
               <img 
                 src={isSleepMode ? graphicAsset('sleepingsalmon') : graphicAsset('anglerfishangry')} 
                 alt={isSleepMode ? "Sleeping Salmon" : "Anglerfish"} 
@@ -1378,7 +1396,7 @@ export default function App() {
           </div>
 
           {/* History Section */}
-          <section className="w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-white/40 shadow-2xl flex flex-col items-center gap-6">
+          <section className="section-panel-ocean-frost p-6 flex flex-col items-center gap-6">
             <div className="flex items-center gap-3">
               <Calendar className="w-6 h-6 text-yellow-300" />
               <h2 className="text-2xl font-black text-white uppercase tracking-widest">History</h2>
@@ -2605,7 +2623,7 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className={`relative w-full max-w-2xl max-h-[90vh] bg-white/10 backdrop-blur-2xl rounded-[3rem] border-4 shadow-[0_0_50px_rgba(250,204,21,0.3)] overflow-hidden flex flex-col ${
+              className={`relative w-full max-w-2xl max-h-[90vh] section-panel-ocean-frost-base border-4 shadow-[0_0_50px_rgba(250,204,21,0.3)] overflow-hidden flex flex-col ${
                 showAchievementCelebration 
                   ? 'border-fuchsia-500 shadow-[0_0_70px_rgba(217,70,239,0.5)]' 
                   : getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests) 

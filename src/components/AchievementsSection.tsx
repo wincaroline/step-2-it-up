@@ -25,7 +25,7 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = React.mem
   const achievedCount = ACHIEVEMENTS.filter(a => getAchievementStatus(a, totalQuestions, history, effectiveTime, totalPracticeTests)).length;
   
   return (
-    <section className={`w-full bg-white/10 backdrop-blur-xl rounded-[3rem] p-6 border-4 border-white/40 shadow-2xl flex flex-col items-center gap-6 ${className}`}>
+    <section className={`section-panel-ocean-frost p-6 flex flex-col items-center gap-6 ${className}`}>
       <div className="flex flex-col items-center gap-1">
         <div className="flex items-center gap-3">
           <Trophy className="w-6 h-6 text-yellow-300" />
