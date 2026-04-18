@@ -21,9 +21,9 @@ import {
 } from 'lucide-react';
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
-import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
 import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls, buildPracticeTestChartSeries } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
+import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
 import { QuestionButtons } from './components/QuestionButtons';
@@ -45,8 +45,23 @@ type GreatProgressPendingState = {
 export default function App() {
   // --- State ---
   const [dailyQuestions, setDailyQuestions] = useState(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('dailyQuestions') : null;
-    return saved ? parseInt(saved) : 0;
+    if (typeof window === 'undefined') return 0;
+    const todayStr = dateKeyFromDate(new Date());
+    const savedHistory = localStorage.getItem('history');
+    if (savedHistory) {
+      try {
+        const parsed = JSON.parse(savedHistory) as Record<string, number>;
+        if (parsed && typeof parsed === 'object') {
+          if (typeof parsed[todayStr] === 'number') return Math.max(0, parsed[todayStr]);
+          // History exists for other days but not today — treat as a new day, not stale `dailyQuestions`.
+          if (Object.keys(parsed).length > 0) return 0;
+        }
+      } catch (e) {
+        console.error('Failed to parse history for dailyQuestions init', e);
+      }
+    }
+    const saved = localStorage.getItem('dailyQuestions');
+    return saved ? parseInt(saved, 10) : 0;
   });
   
   const [totalQuestions, setTotalQuestions] = useState(() => {
@@ -155,6 +170,8 @@ export default function App() {
   const [showGreatProgressModal, setShowGreatProgressModal] = useState(false);
   const [greatProgressSnapshot, setGreatProgressSnapshot] = useState<Omit<GreatProgressPendingState, 'id'> | null>(null);
   const greatProgressBonusAppliedIds = useRef<Set<number>>(new Set());
+  /** Tracks calendar day for `todayKey` so we can reset daily counts at local midnight (or when simulated time jumps). */
+  const prevCalendarDayKeyRef = useRef<string | null>(null);
   const [practiceScoreSpotlight, setPracticeScoreSpotlight] = useState<{
     dateKey: string;
     testNumber: number;
@@ -191,6 +208,19 @@ export default function App() {
   const effectiveTime = simulatedTime || currentTime;
   const todayKey = dateKeyFromDate(effectiveTime);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
+
+  useEffect(() => {
+    const prev = prevCalendarDayKeyRef.current;
+    if (prev === null) {
+      prevCalendarDayKeyRef.current = todayKey;
+      return;
+    }
+    if (prev === todayKey) return;
+
+    prevCalendarDayKeyRef.current = todayKey;
+    const countForDay = history[todayKey];
+    setDailyQuestions(typeof countForDay === 'number' ? Math.max(0, countForDay) : 0);
+  }, [todayKey, history]);
 
   const practiceTestChartSeries = useMemo(
     () => buildPracticeTestChartSeries(practiceTestCompletionDates, practiceTestScores),
@@ -1253,7 +1283,7 @@ export default function App() {
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
                   {(() => {
-                    const streak = calculateCurrentStreak(history, new Date());
+                    const streak = calculateCurrentStreak(history, effectiveTime);
                     const flameStyle = getStreakFlameStyle(streak);
                     const streakTextStyle = streak >= 3 ? { filter: flameStyle.style?.filter } : undefined;
                     const streakTextColorClass = streak >= 5 ? 'text-white' : 'text-yellow-300';
