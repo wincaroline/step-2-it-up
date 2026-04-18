@@ -24,10 +24,12 @@ import {
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
-import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls } from './utils';
+import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
+import { QuestionButtons } from './components/QuestionButtons';
+import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
 type LogWinTier = 60 | 70 | 80;
@@ -199,7 +201,7 @@ export default function App() {
     }
 
     // 2. Check for achievements (merge today's count so streak math sees the value from this click)
-    const todayStr = `${effectiveTime.getFullYear()}-${String(effectiveTime.getMonth() + 1).padStart(2, '0')}-${String(effectiveTime.getDate()).padStart(2, '0')}`;
+    const todayStr = dateKeyFromDate(effectiveTime);
     const historyForAchievements = { ...newHistory, [todayStr]: newDaily };
     const newlyAchieved = ACHIEVEMENTS.filter(
       (a) =>
@@ -231,52 +233,6 @@ export default function App() {
     const hours = effectiveTime.getHours();
     return hours >= 0 && hours < 4;
   }, [effectiveTime]);
-
-  const getHistoryColor = (count: number) => {
-    if (count === 0) return 'rgb(255, 0, 0)';
-    if (count >= 180) return 'rgb(0, 255, 0)';
-    
-    if (count <= 90) {
-      const ratio = count / 90;
-      const g = Math.round(255 * ratio);
-      return `rgb(255, ${g}, 0)`;
-    } else {
-      const ratio = (count - 90) / 90;
-      const r = Math.round(255 * (1 - ratio));
-      return `rgb(${r}, 255, 0)`;
-    }
-  };
-
-  const HARD_ASS_STATEMENTS = [
-    "The abyss is calling, and you're not answering.",
-    "Stop treading water and start swimming.",
-    "Your lack of focus is a shipwreck in progress.",
-    "The tide doesn't wait for the unprepared.",
-    "You're sinking while everyone else is surfacing.",
-    "Are you a predator or just plankton?",
-    "The pressure is rising, and you're cracking.",
-    "Stop drifting into failure.",
-    "The ocean floor is full of people who gave up.",
-    "Your excuses are just bubbles in the deep."
-  ];
-
-  const TOUGH_LOVE_DESCRIPTIONS: Record<string, string> = {
-    "Plankton": "You're barely visible, and honestly, you're not doing much.",
-    "Krill": "You're just whale food. Try harder.",
-    "Sea Snail": "You're moving at a snail's pace. At this rate, the exam will be over before you finish.",
-    "Sardine": "You're just another fish in the sea. Boring.",
-    "Seahorse": "You're just horse-ing around. Get to work.",
-    "Squid": "You're just squirting ink to hide your lack of progress.",
-    "Pufferfish": "You're all puffed up with nothing to show for it.",
-    "Flying Fish": "You're just jumping out of the water to avoid studying.",
-    "Jellyfish": "You're just drifting along, hoping for a miracle.",
-    "Barracuda": "You're just a glorified minnow with an attitude.",
-    "Stingray": "You're just burying yourself in the sand to hide from your responsibilities.",
-    "Dolphin": "You're just playing around while the exam gets closer.",
-    "Orca": "You're supposed to be a killer, but you're just playing with your food.",
-    "Great White Shark": "You're just a big fish in a small pond.",
-    "Blue Whale": "You're just a big, lazy blob."
-  };
 
   useEffect(() => {
     const checkWarningMode = () => {
@@ -348,7 +304,7 @@ export default function App() {
     localStorage.setItem('totalQuestions', totalQuestions.toString());
     
     // Update history for today (using local date string)
-    const todayStr = `${effectiveTime.getFullYear()}-${String(effectiveTime.getMonth() + 1).padStart(2, '0')}-${String(effectiveTime.getDate()).padStart(2, '0')}`;
+    const todayStr = dateKeyFromDate(effectiveTime);
     
     setHistory(prev => {
       const newHistory = { ...prev, [todayStr]: dailyQuestions };
@@ -536,7 +492,7 @@ export default function App() {
   };
 
   const updateHistoryCount = (dateKey: string, newCount: number) => {
-    const todayStr = `${effectiveTime.getFullYear()}-${String(effectiveTime.getMonth() + 1).padStart(2, '0')}-${String(effectiveTime.getDate()).padStart(2, '0')}`;
+    const todayStr = dateKeyFromDate(effectiveTime);
     
     const count = Math.max(0, newCount);
     const prevMaxQuestionsInDay = Math.max(0, ...Object.values(history).map((v) => Number(v)));
@@ -788,14 +744,13 @@ export default function App() {
   const simulateStreak = (days: number) => {
     const newHistory = { ...history };
     const today = new Date();
-    const getDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    
+
     // Add 10 questions for the past `days` days, ending TODAY
     let addedQuestions = 0;
     for (let i = 0; i < days; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      const dateKey = getDateKey(d);
+      const dateKey = dateKeyFromDate(d);
       const current = newHistory[dateKey] || 0;
       newHistory[dateKey] = current + 10;
       addedQuestions += 10;
@@ -830,45 +785,6 @@ export default function App() {
         setLevelMusic(music);
       }
     }
-  };
-
-  const QuestionButtons = ({ onUpdate, isTestMode, isWarningMode, isSleepMode, isHistoryModal = false }: { onUpdate: (amount: number) => void, isTestMode: boolean, isWarningMode: boolean, isSleepMode: boolean, isHistoryModal?: boolean }) => {
-    const getButtonClass = (amount: number) => {
-      const base = isHistoryModal
-        ? "font-black text-[10px] sm:text-[11px] transition-all border-b-2 sm:border-b-[3px] active:border-b-0 active:translate-y-0.5 rounded-lg flex-1 min-w-0 px-1 sm:px-1.5 py-2 tabular-nums"
-        : "font-black text-sm transition-all border-b-4 active:border-b-0 active:translate-y-1 rounded-xl flex-1 py-3";
-
-      if (amount < 0) {
-        if (isSleepMode) return `${base} bg-gray-800 border-gray-950 text-white hover:bg-gray-700`;
-        if (isWarningMode) return `${base} bg-red-900 border-red-950 text-red-100 hover:bg-red-800`;
-        return `${base} bg-gray-400 border-gray-500 text-white hover:bg-gray-500`;
-      }
-      // Positive
-      if (isSleepMode) return `${base} bg-blue-900 border-blue-950 text-blue-100 hover:bg-blue-800`;
-      if (isWarningMode) return `${base} bg-white border-gray-200 text-gray-900 hover:bg-gray-100`;
-      return `${base} bg-emerald-500 border-emerald-600 text-white hover:bg-emerald-600`;
-    };
-
-    const getOpacity = (amount: number) => {
-      if (amount === 1) return "bg-opacity-60";
-      if (amount === 10) return "bg-opacity-80";
-      return "bg-opacity-100";
-    };
-
-    return (
-      <div className="flex flex-nowrap items-stretch gap-1 sm:gap-1.5 w-full min-w-0">
-        {isTestMode && (
-          <button onClick={() => onUpdate(-100)} className={`${getButtonClass(-100)}`}>-100</button>
-        )}
-        <button onClick={() => onUpdate(-10)} className={`${getButtonClass(-10)}`}>-10</button>
-        <button onClick={() => onUpdate(-1)} className={`${getButtonClass(-1)}`}>-1</button>
-        <button onClick={() => onUpdate(1)} className={`${getButtonClass(1)} ${getOpacity(1)}`}>+1</button>
-        <button onClick={() => onUpdate(10)} className={`${getButtonClass(10)} ${getOpacity(10)}`}>+10</button>
-        {isTestMode && (
-          <button onClick={() => onUpdate(100)} className={`${getButtonClass(100)} ${getOpacity(100)}`}>+100</button>
-        )}
-      </div>
-    );
   };
 
   return (
@@ -1326,7 +1242,7 @@ export default function App() {
               {(() => {
                 const rows = [];
                 const startDate = new Date(2026, 3, 5); // April 5, 2026 (Local Time)
-                const todayStr = `${effectiveTime.getFullYear()}-${String(effectiveTime.getMonth() + 1).padStart(2, '0')}-${String(effectiveTime.getDate()).padStart(2, '0')}`;
+                const todayStr = dateKeyFromDate(effectiveTime);
 
                 let cumulativeTotal = 0;
                 // Add up history before start date
@@ -1352,7 +1268,7 @@ export default function App() {
                   for (let day = 0; day < 7; day++) {
                     const date = new Date(weekStart);
                     date.setDate(weekStart.getDate() + day);
-                    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                    const dateKey = dateKeyFromDate(date);
                     const count = history[dateKey] || 0;
                     const isToday = dateKey === todayStr;
                     const isFuture = date > effectiveTime;

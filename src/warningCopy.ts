@@ -1,0 +1,30 @@
+export const HARD_ASS_STATEMENTS = [
+  "The abyss is calling, and you're not answering.",
+  "Stop treading water and start swimming.",
+  "Your lack of focus is a shipwreck in progress.",
+  "The tide doesn't wait for the unprepared.",
+  "You're sinking while everyone else is surfacing.",
+  "Are you a predator or just plankton?",
+  "The pressure is rising, and you're cracking.",
+  "Stop drifting into failure.",
+  "The ocean floor is full of people who gave up.",
+  "Your excuses are just bubbles in the deep.",
+];
+
+export const TOUGH_LOVE_DESCRIPTIONS: Record<string, string> = {
+  Plankton: "You're barely visible, and honestly, you're not doing much.",
+  Krill: "You're just whale food. Try harder.",
+  "Sea Snail": "You're moving at a snail's pace. At this rate, the exam will be over before you finish.",
+  Sardine: "You're just another fish in the sea. Boring.",
+  Seahorse: "You're just horse-ing around. Get to work.",
+  Squid: "You're just squirting ink to hide your lack of progress.",
+  Pufferfish: "You're all puffed up with nothing to show for it.",
+  "Flying Fish": "You're just jumping out of the water to avoid studying.",
+  Jellyfish: "You're just drifting along, hoping for a miracle.",
+  Barracuda: "You're just a glorified minnow with an attitude.",
+  Stingray: "You're just burying yourself in the sand to hide from your responsibilities.",
+  Dolphin: "You're just playing around while the exam gets closer.",
+  Orca: "You're supposed to be a killer, but you're just playing with your food.",
+  "Great White Shark": "You're just a big fish in a small pond.",
+  "Blue Whale": "You're just a big, lazy blob.",
+};

@@ -1,5 +1,5 @@
 
-import { ACHIEVEMENTS, LEVELS, LEVEL_VARIANTS } from './constants';
+import { ACHIEVEMENTS, DAILY_GOAL, LEVELS, LEVEL_VARIANTS } from './constants';
 import { StreakFlameVariant, Achievement } from './types';
 
 /** URL for a file in `public/` (respects Vite `base`, e.g. GitHub Pages project subpath). */
@@ -45,6 +45,21 @@ export function preloadGraphicUrls(urls: string[]): void {
 
 export function dateKeyFromDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function getHistoryColor(count: number): string {
+  const halfGoal = DAILY_GOAL / 2;
+  if (count === 0) return 'rgb(255, 0, 0)';
+  if (count >= DAILY_GOAL) return 'rgb(0, 255, 0)';
+
+  if (count <= halfGoal) {
+    const ratio = count / halfGoal;
+    const g = Math.round(255 * ratio);
+    return `rgb(255, ${g}, 0)`;
+  }
+  const ratio = (count - halfGoal) / halfGoal;
+  const r = Math.round(255 * (1 - ratio));
+  return `rgb(${r}, 255, 0)`;
 }
 
 export function calculateCurrentStreak(history: Record<string, number>, referenceDate: Date = new Date()): number {
