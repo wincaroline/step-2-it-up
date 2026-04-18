@@ -4,8 +4,6 @@ import confetti from 'canvas-confetti';
 import { 
   Trophy, 
   ChevronUp, 
-  Plus,
-  Minus,
   Zap, 
   Anchor, 
   Star,
@@ -812,6 +810,21 @@ export default function App() {
     setPracticeTestEntryScore('');
   };
 
+  const removeTodayPracticeTestRecord = () => {
+    if (!practiceTestCompletionDates[todayKey]) return;
+    setPracticeTestCompletionDates((prev) => {
+      const next = { ...prev };
+      delete next[todayKey];
+      return next;
+    });
+    setPracticeTestScores((prev) => {
+      const next = { ...prev };
+      delete next[todayKey];
+      return next;
+    });
+    setTotalPracticeTests((prev) => Math.max(0, prev - 1));
+  };
+
   const triggerExtremeCelebration = () => {
     setShowGoalModal(true);
     triggerFireworks();
@@ -1114,41 +1127,16 @@ export default function App() {
             </div>
             <div className="flex flex-col flex-1 text-center sm:text-left">
               <span className="text-xs opacity-60 tracking-widest">
-                {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : 'Daily Mission'}
+                {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
               </span>
               <span className={isPracticeTestMissionCompleteToday ? 'text-base' : ''}>
-                {isPracticeTestMissionCompleteToday ? 'Daily Mission Complete' : '1 Practice Test!'}
+                {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : '1 Practice Test!'}
               </span>
               {isPracticeTestMissionCompleteToday && (
                 <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
               )}
             </div>
             <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
-              {isTestMode && (
-                <>
-                  <button
-                    type="button"
-                    aria-label="Decrease practice test count"
-                    onClick={() => setTotalPracticeTests((prev) => Math.max(0, prev - 1))}
-                    className="shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-black/10 text-current border-2 border-current/20 hover:bg-black/20 active:scale-95 transition-all"
-                  >
-                    <Minus className="w-5 h-5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Increase practice test count"
-                    onClick={() => {
-                      setPracticeTestEntryIntent('adminPlus');
-                      setPracticeTestEntryQuestions('');
-                      setPracticeTestEntryScore('');
-                      setShowPracticeTestEntryModal(true);
-                    }}
-                    className="shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-black/10 text-current border-2 border-current/20 hover:bg-black/20 active:scale-95 transition-all"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
-                </>
-              )}
               {!isPracticeTestMissionCompleteToday && (
                 <button 
                   type="button"
@@ -1163,6 +1151,15 @@ export default function App() {
                   className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
                 >
                   Completed
+                </button>
+              )}
+              {isTestMode && isPracticeTestMissionCompleteToday && (
+                <button
+                  type="button"
+                  onClick={removeTodayPracticeTestRecord}
+                  className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                >
+                  Remove
                 </button>
               )}
             </div>
