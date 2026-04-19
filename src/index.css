@@ -52,6 +52,22 @@
  * Compose with padding + flex utilities (e.g. `p-6 flex flex-col gap-6`).
  */
 @layer components {
+  .question-count-clay-btn {
+    box-shadow:
+      inset 0 1.5px 1px rgba(255, 255, 255, 0.5),
+      inset 0 10px 16px -12px rgba(255, 255, 255, 0.42),
+      inset 0 -9px 12px -8px rgba(6, 22, 44, 0.38),
+      0 6px 12px -10px rgba(0, 16, 36, 0.35);
+  }
+
+  .question-count-clay-btn:active {
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.35),
+      inset 0 6px 10px -8px rgba(255, 255, 255, 0.26),
+      inset 0 -6px 10px -7px rgba(6, 22, 44, 0.42);
+    transform: translateY(1px);
+  }
+
   .section-panel-ocean-frost-base {
     /* Lighter tint + milder blur so background motion reads through */
     @apply w-full bg-white/[0.028] backdrop-blur-xl rounded-[3rem];

@@ -42,6 +42,27 @@ type GreatProgressPendingState = {
   highlightDateKey: string;
 };
 
+/** Matches `submitPracticeTestEntry`: q + round(q × % / 100). */
+function computePracticeTestQuestionsCredit(q: number, percent: number | undefined): number {
+  const accuracyBonus = percent === undefined ? 0 : Math.round((q * percent) / 100);
+  return q + accuracyBonus;
+}
+
+/** Practice-test question credits derived from admin modal drafts (invalid partial input → 0 credit). */
+function computePracticeTestCreditFromRawInputs(questionsRaw: string, percentRaw: string): number {
+  const trimmedQ = questionsRaw.trim();
+  if (trimmedQ === '') return 0;
+  const q = parseInt(trimmedQ.replace(/,/g, ''), 10);
+  if (Number.isNaN(q) || q < 0) return 0;
+  const trimmedP = percentRaw.trim();
+  let p: number | undefined;
+  if (trimmedP !== '') {
+    const n = parseFloat(trimmedP.replace(/,/g, ''));
+    if (!Number.isNaN(n) && n >= 0 && n <= 100) p = n;
+  }
+  return computePracticeTestQuestionsCredit(q, p);
+}
+
 export default function App() {
   // --- State ---
   const [dailyQuestions, setDailyQuestions] = useState(() => {
@@ -83,6 +104,10 @@ export default function App() {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('history') : null;
     return saved ? JSON.parse(saved) : {};
   });
+  const historyRef = useRef(history);
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<{ date: string, count: number, dateKey: string, isExamDay?: boolean } | null>(null);
 
@@ -152,20 +177,39 @@ export default function App() {
     }
     return {};
   });
+  const [practiceTestQuestionCredits, setPracticeTestQuestionCredits] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem('practiceTestQuestionCredits');
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return Object.fromEntries(
+          Object.entries(parsed).filter(([, v]) => typeof v === 'number' && !Number.isNaN(v) && v >= 0)
+        ) as Record<string, number>;
+      }
+    } catch (e) {
+      console.error('Failed to parse practiceTestQuestionCredits', e);
+    }
+    return {};
+  });
   const [showPracticeTestEntryModal, setShowPracticeTestEntryModal] = useState(false);
-  const [showLogWinCountModal, setShowLogWinCountModal] = useState(false);
-  const [logWinTier, setLogWinTier] = useState<LogWinTier | null>(null);
-  const [logWinQuestionDraft, setLogWinQuestionDraft] = useState('');
+  const [showLogSetModal, setShowLogSetModal] = useState(false);
+  const [logSetQuestionDraft, setLogSetQuestionDraft] = useState('');
+  const [logSetPercentDraft, setLogSetPercentDraft] = useState('');
+  const [pendingLogSetTier, setPendingLogSetTier] = useState<LogWinTier | null>(null);
   const [showLogWinCelebrateModal, setShowLogWinCelebrateModal] = useState(false);
   const [logWinCelebrate, setLogWinCelebrate] = useState<{
-    bonusQuestions: number;
     tier: LogWinTier;
     questionsCovered: number;
+    percentCorrect: number;
+    bonusQuestions: number;
     newDailyTotal: number;
   } | null>(null);
   const [practiceTestEntryIntent, setPracticeTestEntryIntent] = useState<'completed' | 'adminPlus' | null>(null);
   const [practiceTestEntryQuestions, setPracticeTestEntryQuestions] = useState('');
   const [practiceTestEntryScore, setPracticeTestEntryScore] = useState('');
+  const [practiceTestEntryPercent, setPracticeTestEntryPercent] = useState('');
   const [greatProgressPending, setGreatProgressPending] = useState<GreatProgressPendingState | null>(null);
   const [showGreatProgressModal, setShowGreatProgressModal] = useState(false);
   const [greatProgressSnapshot, setGreatProgressSnapshot] = useState<Omit<GreatProgressPendingState, 'id'> | null>(null);
@@ -180,11 +224,48 @@ export default function App() {
     hadScore: boolean;
   } | null>(null);
   const [adminHistoryPracticeScoreDraft, setAdminHistoryPracticeScoreDraft] = useState('');
+  const [adminHistoryPracticeQuestionsDraft, setAdminHistoryPracticeQuestionsDraft] = useState('');
+  const [adminHistoryPracticePercentDraft, setAdminHistoryPracticePercentDraft] = useState('');
+  const [practiceTestQuestionCounts, setPracticeTestQuestionCounts] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem('practiceTestQuestionCounts');
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return Object.fromEntries(
+          Object.entries(parsed).filter(([, v]) => typeof v === 'number' && !Number.isNaN(v) && v >= 0)
+        ) as Record<string, number>;
+      }
+    } catch (e) {
+      console.error('Failed to parse practiceTestQuestionCounts', e);
+    }
+    return {};
+  });
+  const [practiceTestPercents, setPracticeTestPercents] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem('practiceTestPercents');
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return Object.fromEntries(
+          Object.entries(parsed).filter(
+            ([, v]) => typeof v === 'number' && !Number.isNaN(v) && v >= 0 && v <= 100
+          )
+        ) as Record<string, number>;
+      }
+    } catch (e) {
+      console.error('Failed to parse practiceTestPercents', e);
+    }
+    return {};
+  });
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [goalMessage, setGoalMessage] = useState("");
   const [isMuted, setIsMuted] = useState(false);
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
   const [showAchievementCelebration, setShowAchievementCelebration] = useState(false);
+  const [queuedAchievements, setQueuedAchievements] = useState<Achievement[]>([]);
   const [lastAchievedIds, setLastAchievedIds] = useState<string[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('lastAchievedIds') : null;
     return saved ? JSON.parse(saved) : [];
@@ -281,22 +362,41 @@ export default function App() {
         !lastAchievedIds.includes(a.id)
     );
     if (newlyAchieved.length > 0) {
-      const latest = newlyAchieved[newlyAchieved.length - 1];
-      setSelectedAchievement(latest);
-      setShowAchievementCelebration(true);
+      const [first, ...rest] = newlyAchieved;
+      const deferAchievementModal =
+        selectedAchievement || showAchievementCelebration || selectedHistoryDate;
+      if (deferAchievementModal) {
+        setQueuedAchievements((prev) => {
+          const existing = new Set(prev.map((a) => a.id));
+          const additions = newlyAchieved.filter((a) => !existing.has(a.id));
+          return [...prev, ...additions];
+        });
+      } else {
+        setSelectedAchievement(first);
+        setShowAchievementCelebration(true);
+        if (rest.length > 0) {
+          setQueuedAchievements((prev) => {
+            const existing = new Set(prev.map((a) => a.id));
+            const additions = rest.filter((a) => !existing.has(a.id));
+            return [...prev, ...additions];
+          });
+        }
+      }
       setLastAchievedIds(prev => {
         const next = [...prev, ...newlyAchieved.map(a => a.id)];
         localStorage.setItem('lastAchievedIds', JSON.stringify(next));
         return next;
       });
-      triggerFireworks();
+      if (!selectedHistoryDate) {
+        triggerFireworks();
 
-      if (!isMuted) {
-        const music = new Audio(publicAsset('assets/dancemusic.mp3'));
-        music.loop = true;
-        music.volume = 0.5;
-        music.play().catch(err => console.error("Achievement music failed:", err));
-        setLevelMusic(music);
+        if (!isMuted) {
+          const music = new Audio(publicAsset('assets/dancemusic.mp3'));
+          music.loop = true;
+          music.volume = 0.5;
+          music.play().catch(err => console.error("Achievement music failed:", err));
+          setLevelMusic(music);
+        }
       }
     }
   };
@@ -360,6 +460,7 @@ export default function App() {
 
 
   const daysUntilExam = Math.ceil((EXAM_DATE.getTime() - effectiveTime.getTime()) / (1000 * 60 * 60 * 24));
+  const modalPanelSizeClass = 'w-[92vw] sm:w-[86vw] lg:w-[74vw] max-w-[44rem] max-h-[90dvh]';
 
   // --- Effects ---
   useEffect(() => {
@@ -414,6 +515,18 @@ export default function App() {
   }, [practiceTestScores]);
 
   useEffect(() => {
+    localStorage.setItem('practiceTestQuestionCredits', JSON.stringify(practiceTestQuestionCredits));
+  }, [practiceTestQuestionCredits]);
+
+  useEffect(() => {
+    localStorage.setItem('practiceTestQuestionCounts', JSON.stringify(practiceTestQuestionCounts));
+  }, [practiceTestQuestionCounts]);
+
+  useEffect(() => {
+    localStorage.setItem('practiceTestPercents', JSON.stringify(practiceTestPercents));
+  }, [practiceTestPercents]);
+
+  useEffect(() => {
     // Lock body scroll when any modal is open
     const isAnyModalOpen =
       showGoalModal ||
@@ -421,7 +534,7 @@ export default function App() {
       showSettingsModal ||
       showImageViewer ||
       showPracticeTestEntryModal ||
-      showLogWinCountModal ||
+      showLogSetModal ||
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
       Boolean(practiceScoreSpotlight) ||
@@ -434,7 +547,43 @@ export default function App() {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, showLogWinCountModal, showLogWinCelebrateModal, showGreatProgressModal, practiceScoreSpotlight, selectedHistoryDate]);
+  }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, showLogSetModal, showLogWinCelebrateModal, showGreatProgressModal, practiceScoreSpotlight, selectedHistoryDate]);
+
+  useEffect(() => {
+    const isAnyModalOpen =
+      showGoalModal ||
+      showRecordDayModal ||
+      showSettingsModal ||
+      showImageViewer ||
+      showPracticeTestEntryModal ||
+      showLogSetModal ||
+      showLogWinCelebrateModal ||
+      showGreatProgressModal ||
+      Boolean(practiceScoreSpotlight) ||
+      Boolean(selectedHistoryDate) ||
+      Boolean(selectedAchievement);
+    if (!isAnyModalOpen) return;
+
+    // When any modal opens, reset viewport and modal scrollers to the top.
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.querySelectorAll<HTMLElement>('[data-modal-scroll="true"]').forEach((el) => {
+        el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      });
+    });
+  }, [
+    showGoalModal,
+    showRecordDayModal,
+    showSettingsModal,
+    showImageViewer,
+    showPracticeTestEntryModal,
+    showLogSetModal,
+    showLogWinCelebrateModal,
+    showGreatProgressModal,
+    practiceScoreSpotlight,
+    selectedHistoryDate,
+    selectedAchievement,
+  ]);
 
   // --- Handlers ---
   const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number) => {
@@ -523,6 +672,22 @@ export default function App() {
   }, [greatProgressPending, selectedAchievement, showAchievementCelebration]);
 
   const dismissAchievementView = () => {
+    if (queuedAchievements.length > 0 && selectedHistoryDate) {
+      setSelectedAchievement(null);
+      setShowAchievementCelebration(false);
+      if (levelMusic) {
+        levelMusic.pause();
+        setLevelMusic(null);
+      }
+      return;
+    }
+    if (queuedAchievements.length > 0) {
+      const [next, ...rest] = queuedAchievements;
+      setQueuedAchievements(rest);
+      setSelectedAchievement(next);
+      setShowAchievementCelebration(true);
+      return;
+    }
     setSelectedAchievement(null);
     setShowAchievementCelebration(false);
     if (levelMusic) {
@@ -531,48 +696,68 @@ export default function App() {
     }
   };
 
-  const openLogWinTier = (tier: LogWinTier) => {
-    setLogWinTier(tier);
-    setLogWinQuestionDraft('');
-    setShowLogWinCountModal(true);
+  const openLogSetModal = () => {
+    setLogSetQuestionDraft('');
+    setLogSetPercentDraft('');
+    setShowLogSetModal(true);
   };
 
-  const cancelLogWinCountModal = () => {
-    setShowLogWinCountModal(false);
-    setLogWinTier(null);
-    setLogWinQuestionDraft('');
+  const cancelLogSetModal = () => {
+    setShowLogSetModal(false);
+    setLogSetQuestionDraft('');
+    setLogSetPercentDraft('');
   };
 
-  const confirmLogWin = () => {
-    if (!logWinTier) return;
-    const n = parseInt(logWinQuestionDraft.replace(/,/g, ''), 10);
-    if (!Number.isFinite(n) || n <= 0) return;
-    const bonusQuestions = Math.round((logWinTier / 100) * n);
-    if (bonusQuestions <= 0) return;
-
-    const newDailyTotal = dailyQuestions + bonusQuestions;
-    addQuestions(bonusQuestions);
-    setLogWinCelebrate({
-      bonusQuestions,
-      tier: logWinTier,
-      questionsCovered: n,
-      newDailyTotal,
-    });
-    setShowLogWinCountModal(false);
-    setLogWinTier(null);
-    setLogWinQuestionDraft('');
-    triggerModerateCelebration();
-    setShowLogWinCelebrateModal(true);
-  };
-
-  const triggerModerateCelebration = () => {
+  const triggerModerateCelebration = useCallback(() => {
     confetti({
       particleCount: 100,
       spread: 70,
       origin: { y: 0.6 },
       colors: ['#00BFFF', '#1E90FF', '#ADD8E6']
     });
+  }, []);
+
+  const confirmLogSet = () => {
+    const n = parseInt(logSetQuestionDraft.replace(/,/g, ''), 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const percentInput = logSetPercentDraft.trim();
+    const percent = percentInput === '' ? null : parseFloat(percentInput.replace(/,/g, ''));
+    if (percent !== null && (!Number.isFinite(percent) || percent < 0 || percent > 100)) return;
+
+    const bonusQuestions = percent === null ? 0 : Math.round((n * percent) / 100);
+    const questionsToAdd = n + bonusQuestions;
+    const newDailyTotal = dailyQuestions + questionsToAdd;
+    addQuestions(questionsToAdd);
+    const highestTier: LogWinTier | null =
+      percent === null ? null : percent >= 80 ? 80 : percent >= 70 ? 70 : percent >= 60 ? 60 : null;
+
+    if (highestTier) {
+      setLogWinCelebrate({
+        tier: highestTier,
+        questionsCovered: n,
+        percentCorrect: percent!,
+        bonusQuestions,
+        newDailyTotal,
+      });
+      setPendingLogSetTier(highestTier);
+    } else {
+      setLogWinCelebrate(null);
+      setPendingLogSetTier(null);
+    }
+    setShowLogSetModal(false);
+    setLogSetQuestionDraft('');
+    setLogSetPercentDraft('');
   };
+
+  useEffect(() => {
+    if (!logWinCelebrate) return;
+    if (showLogWinCelebrateModal) return;
+    if (showAchievementCelebration || selectedAchievement) return;
+    if (!pendingLogSetTier) return;
+    triggerModerateCelebration();
+    setShowLogWinCelebrateModal(true);
+    setPendingLogSetTier(null);
+  }, [pendingLogSetTier, showLogWinCelebrateModal, showAchievementCelebration, selectedAchievement, logWinCelebrate, triggerModerateCelebration]);
 
   const clearAllData = () => {
     setDailyQuestions(0);
@@ -580,12 +765,19 @@ export default function App() {
     setLastLevel(0);
     setPracticeTestCompletionDates({});
     setPracticeTestScores({});
+    setPracticeTestQuestionCredits({});
     setTotalPracticeTests(0);
     setGreatProgressPending(null);
     setShowGreatProgressModal(false);
     setGreatProgressSnapshot(null);
     greatProgressBonusAppliedIds.current.clear();
     setPracticeScoreSpotlight(null);
+    setShowLogSetModal(false);
+    setLogSetQuestionDraft('');
+    setLogSetPercentDraft('');
+    setPendingLogSetTier(null);
+    setShowLogWinCelebrateModal(false);
+    setLogWinCelebrate(null);
     setHistory({});
     setLastAchievedIds(['plankton']);
     setIsTestMode(false);
@@ -611,6 +803,7 @@ export default function App() {
     setTotalQuestions(newTotal);
 
     const updatedHistory = { ...history, [dateKey]: count };
+    historyRef.current = updatedHistory;
     setHistory(updatedHistory);
     localStorage.setItem('history', JSON.stringify(updatedHistory));
 
@@ -672,22 +865,15 @@ export default function App() {
     }, 250);
   };
 
-  const celebratePracticeTestAchievements = (nextPracticeTests: number) => {
-    const newlyAchieved = ACHIEVEMENTS.filter(
-      (a) =>
-        PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS[a.id] !== undefined &&
-        getAchievementStatus(a, totalQuestions, history, effectiveTime, nextPracticeTests) &&
-        !lastAchievedIds.includes(a.id)
-    );
-    if (newlyAchieved.length === 0) return;
-    const latest = newlyAchieved[newlyAchieved.length - 1];
-    setSelectedAchievement(latest);
+  /** After closing the history day modal, show achievements that were queued while it was open. */
+  useEffect(() => {
+    if (selectedHistoryDate) return;
+    if (showAchievementCelebration || selectedAchievement) return;
+    if (queuedAchievements.length === 0) return;
+    const [next, ...rest] = queuedAchievements;
+    setQueuedAchievements(rest);
+    setSelectedAchievement(next);
     setShowAchievementCelebration(true);
-    setLastAchievedIds((prev) => {
-      const next = [...prev, ...newlyAchieved.map((b) => b.id)];
-      localStorage.setItem('lastAchievedIds', JSON.stringify(next));
-      return next;
-    });
     triggerFireworks();
     if (!isMuted) {
       const music = new Audio(publicAsset('assets/dancemusic.mp3'));
@@ -696,15 +882,68 @@ export default function App() {
       music.play().catch((err) => console.error('Achievement music failed:', err));
       setLevelMusic(music);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flush queue when history modal closes or queue gains items while closed
+  }, [selectedHistoryDate, queuedAchievements, showAchievementCelebration, selectedAchievement]);
+
+  const celebratePracticeTestAchievements = (nextPracticeTests: number) => {
+    const newlyAchieved = ACHIEVEMENTS.filter(
+      (a) =>
+        PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS[a.id] !== undefined &&
+        getAchievementStatus(a, totalQuestions, history, effectiveTime, nextPracticeTests) &&
+        !lastAchievedIds.includes(a.id)
+    );
+    if (newlyAchieved.length === 0) return;
+    const [first, ...rest] = newlyAchieved;
+    const deferAchievementModal =
+      selectedAchievement || showAchievementCelebration || selectedHistoryDate;
+    if (deferAchievementModal) {
+      setQueuedAchievements((prev) => {
+        const existing = new Set(prev.map((a) => a.id));
+        const additions = newlyAchieved.filter((a) => !existing.has(a.id));
+        return [...prev, ...additions];
+      });
+    } else {
+      setSelectedAchievement(first);
+      setShowAchievementCelebration(true);
+      if (rest.length > 0) {
+        setQueuedAchievements((prev) => {
+          const existing = new Set(prev.map((a) => a.id));
+          const additions = rest.filter((a) => !existing.has(a.id));
+          return [...prev, ...additions];
+        });
+      }
+    }
+    setLastAchievedIds((prev) => {
+      const next = [...prev, ...newlyAchieved.map((b) => b.id)];
+      localStorage.setItem('lastAchievedIds', JSON.stringify(next));
+      return next;
+    });
+    if (!selectedHistoryDate) {
+      triggerFireworks();
+      if (!isMuted) {
+        const music = new Audio(publicAsset('assets/dancemusic.mp3'));
+        music.loop = true;
+        music.volume = 0.5;
+        music.play().catch((err) => console.error('Achievement music failed:', err));
+        setLevelMusic(music);
+      }
+    }
   };
 
   useEffect(() => {
     if (!selectedHistoryDate) {
       setAdminHistoryPracticeScoreDraft('');
+      setAdminHistoryPracticeQuestionsDraft('');
+      setAdminHistoryPracticePercentDraft('');
       return;
     }
-    const v = practiceTestScores[selectedHistoryDate.dateKey];
-    setAdminHistoryPracticeScoreDraft(v !== undefined ? String(v) : '');
+    const dk = selectedHistoryDate.dateKey;
+    const scoreV = practiceTestScores[dk];
+    setAdminHistoryPracticeScoreDraft(scoreV !== undefined ? String(scoreV) : '');
+    const qV = practiceTestQuestionCounts[dk];
+    setAdminHistoryPracticeQuestionsDraft(qV !== undefined ? String(qV) : '');
+    const pV = practiceTestPercents[dk];
+    setAdminHistoryPracticePercentDraft(pV !== undefined ? String(pV) : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset draft when viewing a different day
   }, [selectedHistoryDate?.dateKey]);
 
@@ -719,6 +958,114 @@ export default function App() {
         if (!Number.isNaN(num)) {
           next[dateKey] = num;
         }
+      }
+      return next;
+    });
+  };
+
+  const applyPracticeTestQuestionsForDate = (dateKey: string, raw: string) => {
+    const trimmed = raw.trim();
+    setPracticeTestQuestionCounts((prev) => {
+      const next = { ...prev };
+      if (trimmed === '') {
+        delete next[dateKey];
+      } else {
+        const num = parseInt(trimmed.replace(/,/g, ''), 10);
+        if (!Number.isNaN(num) && num >= 0) {
+          next[dateKey] = num;
+        }
+      }
+      return next;
+    });
+  };
+
+  const applyPracticeTestPercentForDate = (dateKey: string, raw: string) => {
+    const trimmed = raw.trim();
+    setPracticeTestPercents((prev) => {
+      const next = { ...prev };
+      if (trimmed === '') {
+        delete next[dateKey];
+      } else {
+        const num = parseFloat(trimmed.replace(/,/g, ''));
+        if (!Number.isNaN(num) && num >= 0 && num <= 100) {
+          next[dateKey] = num;
+        }
+      }
+      return next;
+    });
+  };
+
+  const syncPracticeTestCreditFromHistoryModalInputs = (
+    dateKey: string,
+    questionsRaw: string,
+    percentRaw: string
+  ) => {
+    const newCredit = computePracticeTestCreditFromRawInputs(questionsRaw, percentRaw);
+    setPracticeTestQuestionCredits((prevCredits) => {
+      const oldCredit = prevCredits[dateKey] ?? 0;
+      if (newCredit === oldCredit) return prevCredits;
+      const prevDayCount = historyRef.current[dateKey] ?? 0;
+      updateHistoryCount(dateKey, prevDayCount + (newCredit - oldCredit));
+      return { ...prevCredits, [dateKey]: newCredit };
+    });
+  };
+
+  const handleHistoryPracticeTestCompletionChange = (dateKey: string, checked: boolean) => {
+    const wasChecked = Boolean(practiceTestCompletionDates[dateKey]);
+    if (checked === wasChecked) return;
+
+    if (!checked) {
+      const creditToRemove = practiceTestQuestionCredits[dateKey] || 0;
+      if (creditToRemove > 0) {
+        updateHistoryCount(dateKey, (history[dateKey] || 0) - creditToRemove);
+      }
+    }
+
+    setPracticeTestCompletionDates((prev) => {
+      const next = { ...prev };
+      if (checked) {
+        next[dateKey] = true;
+      } else {
+        delete next[dateKey];
+      }
+      return next;
+    });
+
+    if (!checked) {
+      setPracticeTestScores((prev) => {
+        const next = { ...prev };
+        delete next[dateKey];
+        return next;
+      });
+      setPracticeTestQuestionCounts((prev) => {
+        const next = { ...prev };
+        delete next[dateKey];
+        return next;
+      });
+      setPracticeTestPercents((prev) => {
+        const next = { ...prev };
+        delete next[dateKey];
+        return next;
+      });
+      setAdminHistoryPracticeScoreDraft('');
+      setAdminHistoryPracticeQuestionsDraft('');
+      setAdminHistoryPracticePercentDraft('');
+    }
+
+    setPracticeTestQuestionCredits((prev) => {
+      const next = { ...prev };
+      if (checked) {
+        if (next[dateKey] === undefined) next[dateKey] = 0;
+      } else {
+        delete next[dateKey];
+      }
+      return next;
+    });
+
+    setTotalPracticeTests((prev) => {
+      const next = Math.max(0, prev + (checked ? 1 : -1));
+      if (checked && next > prev) {
+        celebratePracticeTestAchievements(next);
       }
       return next;
     });
@@ -746,10 +1093,17 @@ export default function App() {
     if (!practiceTestEntryIntent) return;
     const q = Math.max(0, Math.floor(Number(practiceTestEntryQuestions)) || 0);
     const scoreRaw = practiceTestEntryScore.trim();
+    const percentRaw = practiceTestEntryPercent.trim();
     let parsedScore: number | undefined;
+    let parsedPercent: number | undefined;
     if (scoreRaw !== '') {
       const p = parseFloat(scoreRaw);
       if (!Number.isNaN(p)) parsedScore = p;
+    }
+    if (percentRaw !== '') {
+      const p = parseFloat(percentRaw);
+      if (!Number.isNaN(p) && p >= 0 && p <= 100) parsedPercent = p;
+      else return;
     }
 
     const prevScores = practiceTestScores;
@@ -802,8 +1156,39 @@ export default function App() {
       return next;
     });
 
-    if (q > 0) {
-      addQuestions(q, practiceTestsAfterSubmit);
+    setPracticeTestQuestionCounts((prev) => ({ ...prev, [todayKey]: q }));
+
+    setPracticeTestPercents((prev) => {
+      const next = { ...prev };
+      if (parsedPercent !== undefined) next[todayKey] = parsedPercent;
+      else delete next[todayKey];
+      return next;
+    });
+
+    const highestTier: LogWinTier | null =
+      parsedPercent === undefined ? null : parsedPercent >= 80 ? 80 : parsedPercent >= 70 ? 70 : parsedPercent >= 60 ? 60 : null;
+    const accuracyBonusQuestions = parsedPercent === undefined ? 0 : Math.round((q * parsedPercent) / 100);
+    const questionsToAdd = q + accuracyBonusQuestions;
+
+    if (questionsToAdd > 0) {
+      addQuestions(questionsToAdd, practiceTestsAfterSubmit);
+    }
+    setPracticeTestQuestionCredits((prev) => ({ ...prev, [todayKey]: questionsToAdd }));
+
+    if (highestTier && q > 0) {
+      const bonusQuestions = accuracyBonusQuestions;
+      const newDailyTotal = dailyQuestions + questionsToAdd;
+      setLogWinCelebrate({
+        tier: highestTier,
+        questionsCovered: q,
+        percentCorrect: parsedPercent!,
+        bonusQuestions,
+        newDailyTotal,
+      });
+      setPendingLogSetTier(highestTier);
+    } else {
+      setLogWinCelebrate(null);
+      setPendingLogSetTier(null);
     }
 
     if (practiceTestEntryIntent === 'completed') {
@@ -827,6 +1212,7 @@ export default function App() {
     setPracticeTestEntryIntent(null);
     setPracticeTestEntryQuestions('');
     setPracticeTestEntryScore('');
+    setPracticeTestEntryPercent('');
 
     if (greatProgressQueued) {
       setGreatProgressPending(greatProgressQueued);
@@ -838,16 +1224,36 @@ export default function App() {
     setPracticeTestEntryIntent(null);
     setPracticeTestEntryQuestions('');
     setPracticeTestEntryScore('');
+    setPracticeTestEntryPercent('');
   };
 
   const removeTodayPracticeTestRecord = () => {
     if (!practiceTestCompletionDates[todayKey]) return;
+    const creditToRemove = practiceTestQuestionCredits[todayKey] || 0;
+    if (creditToRemove > 0) {
+      updateHistoryCount(todayKey, (history[todayKey] || 0) - creditToRemove);
+    }
     setPracticeTestCompletionDates((prev) => {
       const next = { ...prev };
       delete next[todayKey];
       return next;
     });
     setPracticeTestScores((prev) => {
+      const next = { ...prev };
+      delete next[todayKey];
+      return next;
+    });
+    setPracticeTestQuestionCounts((prev) => {
+      const next = { ...prev };
+      delete next[todayKey];
+      return next;
+    });
+    setPracticeTestPercents((prev) => {
+      const next = { ...prev };
+      delete next[todayKey];
+      return next;
+    });
+    setPracticeTestQuestionCredits((prev) => {
       const next = { ...prev };
       delete next[todayKey];
       return next;
@@ -948,22 +1354,41 @@ export default function App() {
     // Check for achievements with the new history
     const newlyAchieved = ACHIEVEMENTS.filter(a => getAchievementStatus(a, newTotal, newHistory, today, totalPracticeTests) && !lastAchievedIds.includes(a.id));
     if (newlyAchieved.length > 0) {
-      const latest = newlyAchieved[newlyAchieved.length - 1];
-      setSelectedAchievement(latest);
-      setShowAchievementCelebration(true);
+      const [first, ...rest] = newlyAchieved;
+      const deferAchievementModal =
+        selectedAchievement || showAchievementCelebration || selectedHistoryDate;
+      if (deferAchievementModal) {
+        setQueuedAchievements((prev) => {
+          const existing = new Set(prev.map((a) => a.id));
+          const additions = newlyAchieved.filter((a) => !existing.has(a.id));
+          return [...prev, ...additions];
+        });
+      } else {
+        setSelectedAchievement(first);
+        setShowAchievementCelebration(true);
+        if (rest.length > 0) {
+          setQueuedAchievements((prev) => {
+            const existing = new Set(prev.map((a) => a.id));
+            const additions = rest.filter((a) => !existing.has(a.id));
+            return [...prev, ...additions];
+          });
+        }
+      }
       setLastAchievedIds(prev => {
         const next = [...prev, ...newlyAchieved.map(a => a.id)];
         localStorage.setItem('lastAchievedIds', JSON.stringify(next));
         return next;
       });
-      triggerFireworks();
+      if (!selectedHistoryDate) {
+        triggerFireworks();
 
-      if (!isMuted) {
-        const music = new Audio(publicAsset('assets/dancemusic.mp3'));
-        music.loop = true;
-        music.volume = 0.5;
-        music.play().catch(err => console.error("Achievement music failed:", err));
-        setLevelMusic(music);
+        if (!isMuted) {
+          const music = new Audio(publicAsset('assets/dancemusic.mp3'));
+          music.loop = true;
+          music.volume = 0.5;
+          music.play().catch(err => console.error("Achievement music failed:", err));
+          setLevelMusic(music);
+        }
       }
     }
   };
@@ -1080,6 +1505,19 @@ export default function App() {
               <div className="w-full mt-2">
                 <QuestionButtons onUpdate={addQuestions} isTestMode={isTestMode} isWarningMode={isWarningMode} isSleepMode={isSleepMode} />
               </div>
+              <button
+                type="button"
+                onClick={openLogSetModal}
+                className={`question-count-clay-btn mt-3 rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] ${
+                  isSleepMode
+                    ? 'bg-slate-700/80 text-white hover:bg-slate-600'
+                    : isWarningMode
+                      ? 'bg-red-950/80 text-white hover:bg-red-900'
+                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
+                }`}
+              >
+                Log Set
+              </button>
             </motion.div>
 
             {/* Progress Bar */}
@@ -1191,6 +1629,7 @@ export default function App() {
                     setPracticeTestEntryIntent('completed');
                     setPracticeTestEntryQuestions('');
                     setPracticeTestEntryScore('');
+                    setPracticeTestEntryPercent('');
                     setShowPracticeTestEntryModal(true);
                   }}
                   className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
@@ -1210,55 +1649,6 @@ export default function App() {
             </div>
             </div>
           </div>
-
-          {/* Log a Win */}
-          <section className="section-panel-ocean-frost p-6 flex flex-col gap-6">
-            <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">Log a Win</h2>
-            <p className="text-center text-white/80 font-bold text-sm max-w-md mx-auto">
-              Tap your accuracy tier, then enter how many questions that block covered. We will add bonus questions to today&apos;s total based on your tier.
-            </p>
-            <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full min-w-0">
-              <button
-                type="button"
-                onClick={() => openLogWinTier(60)}
-                className={`w-full min-w-0 py-4 sm:py-5 px-2 sm:px-4 rounded-2xl font-black text-[10px] sm:text-base md:text-xl uppercase tracking-tight sm:tracking-wide border-4 shadow-lg transition-all active:scale-[0.98] leading-tight ${
-                  isSleepMode
-                    ? 'bg-slate-700/80 border-slate-500 text-white hover:bg-slate-600'
-                    : isWarningMode
-                      ? 'bg-red-950/80 border-red-600 text-white hover:bg-red-900'
-                      : 'bg-gradient-to-r from-amber-400 to-orange-400 border-amber-200 text-slate-900 hover:brightness-105'
-                }`}
-              >
-                &gt; 60% Correct
-              </button>
-              <button
-                type="button"
-                onClick={() => openLogWinTier(70)}
-                className={`w-full min-w-0 py-4 sm:py-5 px-2 sm:px-4 rounded-2xl font-black text-[10px] sm:text-base md:text-xl uppercase tracking-tight sm:tracking-wide border-4 shadow-lg transition-all active:scale-[0.98] leading-tight ${
-                  isSleepMode
-                    ? 'bg-slate-700/80 border-slate-500 text-white hover:bg-slate-600'
-                    : isWarningMode
-                      ? 'bg-red-950/80 border-red-600 text-white hover:bg-red-900'
-                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 border-cyan-200 text-slate-900 hover:brightness-105'
-                }`}
-              >
-                &gt; 70% Correct
-              </button>
-              <button
-                type="button"
-                onClick={() => openLogWinTier(80)}
-                className={`w-full min-w-0 py-4 sm:py-5 px-2 sm:px-4 rounded-2xl font-black text-[10px] sm:text-base md:text-xl uppercase tracking-tight sm:tracking-wide border-4 shadow-lg transition-all active:scale-[0.98] leading-tight ${
-                  isSleepMode
-                    ? 'bg-slate-700/80 border-slate-500 text-white hover:bg-slate-600'
-                    : isWarningMode
-                      ? 'bg-red-950/80 border-red-600 text-white hover:bg-red-900'
-                      : 'bg-gradient-to-r from-fuchsia-400 to-purple-500 border-fuchsia-200 text-white hover:brightness-105'
-                }`}
-              >
-                &gt; 80% Correct
-              </button>
-            </div>
-          </section>
 
           {/* Footer Stats */}
           <section className="section-panel-ocean-frost p-6 space-y-6">
@@ -1484,28 +1874,26 @@ export default function App() {
                       <div 
                         key={dateKey}
                         onClick={() => setSelectedHistoryDate({ date: date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), count, dateKey, isExamDay })}
-                        className={`aspect-square rounded-lg border-2 flex items-center justify-center text-xs font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative ${
+                        className={`question-count-clay-btn aspect-square rounded-lg flex items-center justify-center text-xs font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative ${
                           isExamDay
-                            ? 'bg-red-600 border-red-400 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]'
+                            ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]'
                             : isFuture && !isTestMode
-                              ? 'bg-white/5 border-white/5 text-white/20'
+                              ? 'bg-white/5 text-white/20'
                               : dynamicColor
                                 ? '' 
                                 : isToday
-                                  ? 'bg-white/20 border-white/60 text-white shadow-[0_0_15px_rgba(255,255,255,0.3)]'
+                                  ? 'bg-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.3)]'
                                   : count >= 180
-                                    ? 'bg-green-500 border-green-400 text-white'
+                                    ? 'bg-green-500 text-white'
                                     : count >= 120
-                                      ? 'bg-yellow-500 border-yellow-400 text-white'
+                                      ? 'bg-yellow-500 text-white'
                                       : count > 0
-                                        ? 'bg-red-500 border-red-400 text-white'
-                                        : 'bg-white/10 border-white/10 text-white/40'
+                                        ? 'bg-red-500 text-white'
+                                        : 'bg-white/10 text-white/40'
                         }`}
                         style={dynamicColor ? {
                           backgroundColor: dynamicColor,
-                          borderColor: isToday ? 'rgba(255, 255, 255, 0.8)' : dynamicColor,
-                          color: count > 45 ? 'black' : 'white',
-                          boxShadow: isToday ? '0 0 15px rgba(255, 255, 255, 0.3)' : 'none'
+                          color: count > 45 ? 'black' : 'white'
                         } : {}}
                       >
                         {isExamDay ? (
@@ -1592,19 +1980,20 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[90] flex items-center justify-center p-6 bg-[#001a2c]/95 backdrop-blur-md"
+            className="fixed inset-0 z-[90] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/95 backdrop-blur-md"
           >
             <motion.div
               initial={{ scale: 0.9, y: 24 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
-              className="bg-white rounded-[2rem] max-w-sm w-full border-4 border-cyan-400 shadow-2xl p-8 text-left"
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-cyan-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
               <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
                 Log practice test
               </h3>
               <p className="text-sm text-gray-600 font-medium mb-6">
-                Add how many questions were on the test and your score. Your daily question count will include the questions from this test.
+                Add how many questions were on the test and your score. You can also optionally log percent correct.
               </p>
               <div className="space-y-4 mb-8">
                 <div>
@@ -1636,19 +2025,37 @@ export default function App() {
                     className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
                   />
                 </div>
+                <div>
+                  <label htmlFor="practice-test-percent" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
+                    <span>% Correct</span>
+                    <span className="normal-case tracking-normal text-[10px] text-gray-400">(optional)</span>
+                  </label>
+                  <input
+                    id="practice-test-percent"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.1"
+                    inputMode="decimal"
+                    value={practiceTestEntryPercent}
+                    onChange={(e) => setPracticeTestEntryPercent(e.target.value)}
+                    placeholder="e.g. 72"
+                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
                   onClick={cancelPracticeTestEntry}
-                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
+                  className="question-count-clay-btn flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={submitPracticeTestEntry}
-                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white border-b-4 border-cyan-900 hover:bg-cyan-500 transition-all active:scale-[0.98]"
+                  className="question-count-clay-btn flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98]"
                 >
                   Continue
                 </button>
@@ -1662,13 +2069,14 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[96] flex items-center justify-center p-6 bg-[#001a2c]/95 backdrop-blur-md"
+            className="fixed inset-0 z-[96] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/95 backdrop-blur-md"
           >
             <motion.div
               initial={{ scale: 0.9, y: 24 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
-              className="bg-white rounded-[2rem] max-w-md w-full border-4 border-emerald-400 shadow-2xl p-8 text-left max-h-[90vh] overflow-y-auto"
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-emerald-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
               <h3 className="text-2xl font-black uppercase tracking-tight text-emerald-950 mb-2 text-center">
                 Great Progress!
@@ -1736,7 +2144,7 @@ export default function App() {
                   setShowGreatProgressModal(false);
                   setGreatProgressSnapshot(null);
                 }}
-                className="w-full py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-emerald-600 text-white border-b-4 border-emerald-900 hover:bg-emerald-500 transition-all active:scale-[0.98]"
+                className="question-count-clay-btn w-full py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-500 transition-all active:scale-[0.98]"
               >
                 Awesome!
               </button>
@@ -1749,7 +2157,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[93] flex items-center justify-center p-6 bg-[#001a2c]/95 backdrop-blur-md"
+            className="fixed inset-0 z-[93] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/95 backdrop-blur-md"
             onClick={dismissPracticeScoreSpotlight}
           >
             <motion.div
@@ -1757,9 +2165,8 @@ export default function App() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
               onClick={(e) => e.stopPropagation()}
-              className={`bg-white rounded-[2rem] w-full border-4 border-cyan-400 shadow-2xl p-8 text-left max-h-[90vh] overflow-y-auto ${
-                practiceScoreSpotlight.isLatest ? 'max-w-lg' : 'max-w-sm'
-              }`}
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-cyan-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
               {practiceScoreSpotlight.isLatest ? (
                 <>
@@ -1822,7 +2229,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={savePracticeScoreSpotlight}
-                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white border-b-4 border-cyan-900 hover:bg-cyan-500 transition-all active:scale-[0.98]"
+                  className="question-count-clay-btn flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98]"
                 >
                   Save
                 </button>
@@ -1831,27 +2238,28 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* Log a Win: question count */}
-        {showLogWinCountModal && logWinTier && (
+        {/* Log Set entry */}
+        {showLogSetModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[91] flex items-center justify-center p-6 bg-[#001a2c]/95 backdrop-blur-md"
+            className="fixed inset-0 z-[91] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/95 backdrop-blur-md"
           >
             <motion.div
               initial={{ scale: 0.9, y: 24 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
-              className="bg-white rounded-[2rem] max-w-sm w-full border-4 border-cyan-400 shadow-2xl p-8 text-left"
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-cyan-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
               <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
-                Questions at this accuracy
+                Log Set
               </h3>
               <p className="text-sm text-gray-600 font-medium mb-6">
-                How many questions did your &gt; {logWinTier}% correct session cover?
+                Enter the size of the set and your percent correct.
               </p>
-              <div className="mb-8">
+              <div className="mb-4">
                 <label htmlFor="log-win-q" className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
                   Number of questions
                 </label>
@@ -1860,28 +2268,50 @@ export default function App() {
                   type="number"
                   min={1}
                   inputMode="numeric"
-                  value={logWinQuestionDraft}
-                  onChange={(e) => setLogWinQuestionDraft(e.target.value)}
+                  value={logSetQuestionDraft}
+                  onChange={(e) => setLogSetQuestionDraft(e.target.value)}
                   placeholder="e.g. 40"
+                  className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div className="mb-8">
+                <label htmlFor="log-win-percent" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
+                  <span>% Correct</span>
+                  <span className="normal-case tracking-normal text-[10px] text-gray-400">(optional)</span>
+                </label>
+                <input
+                  id="log-win-percent"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.1"
+                  inputMode="decimal"
+                  value={logSetPercentDraft}
+                  onChange={(e) => setLogSetPercentDraft(e.target.value)}
+                  placeholder="e.g. 72"
                   className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
                 />
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
-                  onClick={cancelLogWinCountModal}
+                  onClick={cancelLogSetModal}
                   className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={confirmLogWin}
+                  onClick={confirmLogSet}
                   disabled={
-                    !Number.isFinite(parseInt(logWinQuestionDraft.replace(/,/g, ''), 10)) ||
-                    parseInt(logWinQuestionDraft.replace(/,/g, ''), 10) <= 0
+                    !Number.isFinite(parseInt(logSetQuestionDraft.replace(/,/g, ''), 10)) ||
+                    parseInt(logSetQuestionDraft.replace(/,/g, ''), 10) <= 0 ||
+                    (logSetPercentDraft.trim() !== '' &&
+                      (!Number.isFinite(parseFloat(logSetPercentDraft.replace(/,/g, ''))) ||
+                        parseFloat(logSetPercentDraft.replace(/,/g, '')) < 0 ||
+                        parseFloat(logSetPercentDraft.replace(/,/g, '')) > 100))
                   }
-                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white border-b-4 border-cyan-900 hover:bg-cyan-500 transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
+                  className="question-count-clay-btn flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
                 >
                   Confirm
                 </button>
@@ -1890,21 +2320,22 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* Log a Win: celebration */}
+        {/* Log Set: tier celebration */}
         {showLogWinCelebrateModal && logWinCelebrate && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[92] flex items-center justify-center p-6 bg-[#001a2c]/90 backdrop-blur-md"
+            className="fixed inset-0 z-[92] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
           >
             <motion.div
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className="bg-white rounded-[3rem] max-w-sm lg:max-w-md w-full text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative max-h-[85vh] overflow-y-auto overflow-x-hidden"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
-              <div className="w-full max-h-[250px] h-[250px] overflow-hidden rounded-t-[2.2rem] bg-cyan-50">
+              <div className="w-full h-[220px] md:h-[350px] overflow-hidden rounded-t-[2.2rem] bg-cyan-50">
                 <motion.img
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -1929,22 +2360,33 @@ export default function App() {
                 <div className="space-y-2">
                   <p className="text-cyan-800 font-bold text-base leading-snug">
                     {logWinCelebrate.tier === 60 &&
-                      'Double Thumbs Up Salmon is beaming—you earned this accuracy and every bit of credit toward your streak.'}
+                      'Double Thumbs Up Salmon is beaming. You cleared 60%+ on this set!'}
                     {logWinCelebrate.tier === 70 &&
-                      'Scholar Salmon tips their mortarboard: your discipline shows, and they could not be prouder of how you studied.'}
+                      'Scholar Salmon tips their mortarboard. You cleared 70%+ on this set!'}
                     {logWinCelebrate.tier === 80 &&
-                      'Rockstar Salmon is shouting encore—you crushed that block with style, and the reef is buzzing with pride.'}
+                      'Rockstar Salmon is shouting encore. You cleared 80%+ on this set!'}
                   </p>
                 </div>
                 <div className="bg-cyan-50 p-4 rounded-2xl border-2 border-cyan-100 space-y-2 text-left">
                   <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
-                    <span>Bonus questions ({logWinCelebrate.tier}% × {logWinCelebrate.questionsCovered} Q)</span>
-                    <span className="font-black tabular-nums">+{logWinCelebrate.bonusQuestions}</span>
+                    <span>Set logged</span>
+                    <span className="font-black tabular-nums">{logWinCelebrate.questionsCovered} Q</span>
                   </div>
-                  <p className="text-cyan-700 text-sm font-medium">
-                    These {logWinCelebrate.bonusQuestions} bonus questions are added to your questions done today. You&apos;re now at{' '}
-                    <span className="font-black text-cyan-900">{logWinCelebrate.newDailyTotal}</span> for the day.
-                  </p>
+                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
+                    <span>Accuracy entered</span>
+                    <span className="font-black tabular-nums">{logWinCelebrate.percentCorrect}%</span>
+                  </div>
+                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
+                    <div className="flex flex-col">
+                      <span>Bonus questions</span>
+                      <span className="text-[11px] font-medium text-cyan-700"># logged x % correct</span>
+                    </div>
+                    <span className="font-black tabular-nums">{logWinCelebrate.bonusQuestions}</span>
+                  </div>
+                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950 pt-2 border-t border-cyan-200">
+                    <span>Total Logged</span>
+                    <span className="font-black tabular-nums">{logWinCelebrate.questionsCovered + logWinCelebrate.bonusQuestions}</span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -1952,7 +2394,7 @@ export default function App() {
                     setShowLogWinCelebrateModal(false);
                     setLogWinCelebrate(null);
                   }}
-                  className="w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl shadow-lg border-b-4 border-cyan-900 active:scale-95 transition-all"
+                  className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
                 >
                   Awesome!
                 </button>
@@ -1967,9 +2409,10 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-[#001a2c]/90 backdrop-blur-md"
+            className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-[#001a2c]/90 backdrop-blur-md p-4 sm:p-6"
+            data-modal-scroll="true"
           >
-            <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+            <div className="flex min-h-full items-center justify-center">
             <motion.div 
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
@@ -1993,7 +2436,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-3 sm:px-6 pb-4 custom-scrollbar">
+                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-3 sm:px-6 pb-4 custom-scrollbar" data-modal-scroll="true">
                   {selectedHistoryDate.count >= 180 && !selectedHistoryDate.isExamDay && (
                     <div className="w-full max-w-full">
                       <img 
@@ -2033,89 +2476,133 @@ export default function App() {
                         </div>
                       )}
 
-                      {practiceTestCompletionDates[selectedHistoryDate.dateKey] && (
-                        <div className="w-full max-w-full min-w-0 mt-2 p-4 rounded-2xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <Trophy className="w-6 h-6 text-amber-500 shrink-0" />
-                            <span className="font-black uppercase text-xs tracking-widest text-cyan-950">
-                              Practice Test Completed
-                            </span>
-                          </div>
-                          <p className="mt-2 text-sm font-bold text-gray-800">
-                            {practiceTestScores[selectedHistoryDate.dateKey] !== undefined
-                              ? `Score: ${practiceTestScores[selectedHistoryDate.dateKey]}`
-                              : 'Score not captured.'}
-                          </p>
+                      <div className="w-full max-w-full min-w-0 mt-2 p-4 rounded-2xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Trophy className="w-6 h-6 text-amber-500 shrink-0" />
+                          <span className="font-black uppercase text-xs tracking-widest text-cyan-950">
+                            {practiceTestCompletionDates[selectedHistoryDate.dateKey]
+                              ? 'Practice Test Completed'
+                              : 'Practice Test'}
+                          </span>
                         </div>
-                      )}
-                      {isTestMode && !selectedHistoryDate.isExamDay && (
-                        <div className="w-full mt-2 flex flex-col items-stretch gap-3">
-                          <label className="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer select-none justify-center">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(practiceTestCompletionDates[selectedHistoryDate.dateKey])}
-                              onChange={(e) => {
-                                const { dateKey } = selectedHistoryDate;
-                                const checked = e.target.checked;
-                                const wasChecked = Boolean(practiceTestCompletionDates[dateKey]);
-                                if (checked === wasChecked) return;
 
-                                setPracticeTestCompletionDates((prev) => {
-                                  const next = { ...prev };
-                                  if (checked) {
-                                    next[dateKey] = true;
-                                  } else {
-                                    delete next[dateKey];
-                                  }
-                                  return next;
-                                });
-
-                                if (!checked) {
-                                  setPracticeTestScores((prev) => {
-                                    const next = { ...prev };
-                                    delete next[dateKey];
-                                    return next;
-                                  });
-                                  setAdminHistoryPracticeScoreDraft('');
+                        {isTestMode && (
+                          <div className="mt-4 flex justify-center">
+                            {practiceTestCompletionDates[selectedHistoryDate.dateKey] ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleHistoryPracticeTestCompletionChange(selectedHistoryDate.dateKey, false)
                                 }
-
-                                setTotalPracticeTests((prev) => {
-                                  const next = Math.max(0, prev + (checked ? 1 : -1));
-                                  if (checked && next > prev) {
-                                    celebratePracticeTestAchievements(next);
-                                  }
-                                  return next;
-                                });
-                              }}
-                              className="h-4 w-4"
-                            />
-                            Practice Test complete?
-                          </label>
-                          {practiceTestCompletionDates[selectedHistoryDate.dateKey] && (
-                            <div className="w-full text-left space-y-1">
-                              <label
-                                htmlFor="admin-practice-test-score"
-                                className="block text-[10px] font-black uppercase tracking-widest text-gray-500"
+                                className="px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest bg-red-600 text-white border-2 border-red-700 hover:bg-red-500 hover:border-red-600 transition-all active:scale-[0.98]"
                               >
-                                Practice test score
-                              </label>
-                              <input
-                                id="admin-practice-test-score"
-                                type="text"
-                                inputMode="decimal"
-                                value={adminHistoryPracticeScoreDraft}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setAdminHistoryPracticeScoreDraft(val);
-                                  applyPracticeTestScoreForDate(selectedHistoryDate.dateKey, val);
-                                }}
-                                placeholder="Enter score"
-                                className="w-full bg-white border-2 border-gray-200 rounded-xl px-4 py-2.5 font-black text-gray-900 focus:outline-none focus:border-cyan-400"
-                              />
+                                Remove
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleHistoryPracticeTestCompletionChange(selectedHistoryDate.dateKey, true)
+                                }
+                                className="px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98]"
+                              >
+                                Completed
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {practiceTestCompletionDates[selectedHistoryDate.dateKey] && (
+                          <div className="mt-4 pt-4 border-t border-cyan-200 text-left space-y-3">
+                            <div className="space-y-1">
+                              <span className="block text-[10px] font-black uppercase tracking-widest text-cyan-800/80">
+                                Questions Completed
+                              </span>
+                              {isTestMode ? (
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={adminHistoryPracticeQuestionsDraft}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setAdminHistoryPracticeQuestionsDraft(val);
+                                    applyPracticeTestQuestionsForDate(selectedHistoryDate.dateKey, val);
+                                    syncPracticeTestCreditFromHistoryModalInputs(
+                                      selectedHistoryDate.dateKey,
+                                      val,
+                                      adminHistoryPracticePercentDraft
+                                    );
+                                  }}
+                                  placeholder="—"
+                                  className="w-full bg-white border-2 border-cyan-100 rounded-xl px-4 py-2.5 font-black text-gray-900 focus:outline-none focus:border-cyan-400"
+                                />
+                              ) : (
+                                <p className="text-sm font-black text-gray-900 tabular-nums">
+                                  {practiceTestQuestionCounts[selectedHistoryDate.dateKey] !== undefined
+                                    ? practiceTestQuestionCounts[selectedHistoryDate.dateKey]
+                                    : '—'}
+                                </p>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      )}
+                            <div className="space-y-1">
+                              <span className="block text-[10px] font-black uppercase tracking-widest text-cyan-800/80">
+                                Practice Test Score
+                              </span>
+                              {isTestMode ? (
+                                <input
+                                  id="admin-practice-test-score"
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={adminHistoryPracticeScoreDraft}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setAdminHistoryPracticeScoreDraft(val);
+                                    applyPracticeTestScoreForDate(selectedHistoryDate.dateKey, val);
+                                  }}
+                                  placeholder="—"
+                                  className="w-full bg-white border-2 border-cyan-100 rounded-xl px-4 py-2.5 font-black text-gray-900 focus:outline-none focus:border-cyan-400"
+                                />
+                              ) : (
+                                <p className="text-sm font-black text-gray-900 tabular-nums">
+                                  {practiceTestScores[selectedHistoryDate.dateKey] !== undefined
+                                    ? practiceTestScores[selectedHistoryDate.dateKey]
+                                    : '—'}
+                                </p>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <span className="block text-[10px] font-black uppercase tracking-widest text-cyan-800/80">
+                                % Correct
+                              </span>
+                              {isTestMode ? (
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={adminHistoryPracticePercentDraft}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setAdminHistoryPracticePercentDraft(val);
+                                    applyPracticeTestPercentForDate(selectedHistoryDate.dateKey, val);
+                                    syncPracticeTestCreditFromHistoryModalInputs(
+                                      selectedHistoryDate.dateKey,
+                                      adminHistoryPracticeQuestionsDraft,
+                                      val
+                                    );
+                                  }}
+                                  placeholder="—"
+                                  className="w-full bg-white border-2 border-cyan-100 rounded-xl px-4 py-2.5 font-black text-gray-900 focus:outline-none focus:border-cyan-400"
+                                />
+                              ) : (
+                                <p className="text-sm font-black text-gray-900 tabular-nums">
+                                  {practiceTestPercents[selectedHistoryDate.dateKey] !== undefined
+                                    ? `${practiceTestPercents[selectedHistoryDate.dateKey]}%`
+                                    : '—'}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2123,12 +2610,12 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => setSelectedHistoryDate(null)}
-                  className={`shrink-0 w-full py-4 rounded-2xl font-black text-xl shadow-lg border-b-4 active:scale-95 transition-all ${
+                  className={`question-count-clay-btn shrink-0 w-full py-4 rounded-2xl font-black text-xl active:scale-95 transition-all ${
                     selectedHistoryDate.isExamDay 
-                      ? 'bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-800' 
+                      ? 'bg-yellow-500 hover:bg-yellow-600 text-white' 
                       : selectedHistoryDate.count >= DAILY_GOAL
-                        ? 'bg-green-600 hover:bg-green-700 text-white border-green-900'
-                        : 'bg-gray-600 hover:bg-gray-700 text-white border-gray-900'
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-gray-600 hover:bg-gray-700 text-white'
                   }`}
                 >
                   {selectedHistoryDate.isExamDay ? "LET'S GO!" : "AWESOME"}
@@ -2145,9 +2632,10 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] bg-[#001a2c]/95 backdrop-blur-xl overflow-y-auto p-6"
+            className="fixed inset-0 z-[70] bg-[#001a2c]/95 backdrop-blur-xl overflow-y-auto p-4 sm:p-6"
+            data-modal-scroll="true"
           >
-            <div className="max-w-4xl mx-auto py-12">
+            <div className="w-[92vw] sm:w-[86vw] lg:w-[78vw] max-w-3xl mx-auto py-8 sm:py-12">
               <div className="flex justify-between items-center mb-12">
                 <h2 className="text-4xl font-black text-white uppercase tracking-widest">Level Map</h2>
                 <button 
@@ -2180,7 +2668,7 @@ export default function App() {
                           <img 
                             src={graphicAsset(level.graphic)} 
                             alt={level.name} 
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover object-center"
                           />
                         ) : (
                           <div className="text-4xl opacity-30">{level.emoji}</div>
@@ -2210,13 +2698,14 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-[#001a2c]/90 backdrop-blur-md"
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
           >
             <motion.div 
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className="bg-white rounded-[3rem] max-w-sm lg:max-w-md w-full border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] relative max-h-[85vh] overflow-y-auto overflow-x-hidden"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] relative overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
               <div className="p-8 space-y-6">
                 <div className="flex items-center justify-between">
@@ -2389,13 +2878,13 @@ export default function App() {
                           <div className="flex gap-2">
                             <button 
                               onClick={clearAllData}
-                              className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-black text-sm shadow-lg border-b-4 border-red-900 active:scale-95 transition-all"
+                              className="question-count-clay-btn flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-black text-sm active:scale-95 transition-all"
                             >
                               YES, DELETE
                             </button>
                             <button 
                               onClick={() => setIsConfirmingClear(false)}
-                              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-3 rounded-xl font-black text-sm border-b-4 border-gray-300 active:scale-95 transition-all"
+                              className="question-count-clay-btn flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-3 rounded-xl font-black text-sm active:scale-95 transition-all"
                             >
                               CANCEL
                             </button>
@@ -2412,7 +2901,7 @@ export default function App() {
 
                 <button 
                   onClick={() => setShowSettingsModal(false)}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xl shadow-lg border-b-4 border-blue-900 active:scale-95 transition-all"
+                  className="question-count-clay-btn w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
                 >
                   DONE
                 </button>
@@ -2427,21 +2916,22 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 flex items-center justify-center p-6 bg-[#001a2c]/90 backdrop-blur-md"
+            className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
           >
             <motion.div 
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className="bg-white rounded-[3rem] max-w-sm lg:max-w-md w-full text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative max-h-[85vh] overflow-y-auto overflow-x-hidden"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
-              <div className="w-full h-64 bg-cyan-50 overflow-hidden rounded-t-[2.2rem]">
+              <div className="w-full h-[220px] md:h-[350px] bg-cyan-50 overflow-hidden rounded-t-[2.2rem]">
                 <motion.img 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   src={graphicAsset('salmonthumbsup')} 
                   alt="Salmon Thumbs Up" 
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover object-center"
                   referrerPolicy="no-referrer"
                 />
               </div>
@@ -2456,7 +2946,7 @@ export default function App() {
                 </div>
                 <button 
                   onClick={() => setShowGoalModal(false)}
-                  className="w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl shadow-lg border-b-4 border-cyan-900 active:scale-95 transition-all"
+                  className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
                 >
                   I'll Keep It Up!
                 </button>
@@ -2471,21 +2961,22 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 flex items-center justify-center p-6 bg-[#001a2c]/90 backdrop-blur-md"
+            className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
           >
             <motion.div 
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className="bg-white rounded-[3rem] max-w-sm lg:max-w-md w-full text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative max-h-[85vh] overflow-y-auto overflow-x-hidden"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative overflow-y-auto overflow-x-hidden`}
+              data-modal-scroll="true"
             >
-              <div className="w-full h-64 bg-cyan-50 overflow-hidden rounded-t-[2.2rem]">
+              <div className="w-full h-[220px] md:h-[350px] bg-cyan-50 overflow-hidden rounded-t-[2.2rem]">
                 <motion.img 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   src={graphicAsset('salmonthumbsup')} 
                   alt="Salmon Thumbs Up" 
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover object-center"
                   referrerPolicy="no-referrer"
                 />
               </div>
@@ -2503,7 +2994,7 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => setShowRecordDayModal(false)}
-                  className="w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl shadow-lg border-b-4 border-cyan-900 active:scale-95 transition-all"
+                  className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
                 >
                   {"Let's Go!"}
                 </button>
@@ -2518,13 +3009,14 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[#001a2c]/90 backdrop-blur-md"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
           >
             <motion.div 
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className="bg-white rounded-[3rem] max-w-sm lg:max-w-md w-full text-center border-8 border-cyan-400 shadow-[0_0_50px_#00ffff,0_0_100px_#00ffff] relative max-h-[85vh] overflow-y-auto overflow-x-hidden p-8"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#00ffff,0_0_100px_#00ffff] relative overflow-y-auto overflow-x-hidden p-6 sm:p-8`}
+              data-modal-scroll="true"
             >
               <h2 className="text-cyan-900 text-3xl font-black uppercase leading-none mb-6">Switch Version</h2>
               <div className="grid grid-cols-2 gap-4">
@@ -2537,13 +3029,13 @@ export default function App() {
                     }}
                     className={`cursor-pointer rounded-2xl border-4 overflow-hidden transition-all hover:scale-105 ${displayVariant === variant ? 'border-cyan-500 shadow-lg' : 'border-gray-200 opacity-70'}`}
                   >
-                    <img src={graphicAsset(variant)} alt={variant} className="w-full aspect-square object-cover" />
+                    <img src={graphicAsset(variant)} alt={variant} className="w-full aspect-square object-cover object-center" />
                   </div>
                 ))}
               </div>
               <button 
                 onClick={() => setShowVariantModal(false)}
-                className="mt-8 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 py-4 rounded-2xl font-black text-xl shadow-lg border-b-4 border-gray-400 active:scale-95 transition-all"
+                className="question-count-clay-btn mt-8 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
               >
                 Close
               </button>
@@ -2641,7 +3133,7 @@ export default function App() {
       {/* Achievement Detail Modal */}
       <AnimatePresence>
         {selectedAchievement && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -2653,7 +3145,7 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className={`relative w-full max-w-2xl max-h-[90vh] section-panel-ocean-frost-base border-4 shadow-[0_0_50px_rgba(250,204,21,0.3)] overflow-hidden flex flex-col ${
+              className={`relative ${modalPanelSizeClass} section-panel-ocean-frost-base border-4 shadow-[0_0_50px_rgba(250,204,21,0.3)] overflow-hidden flex flex-col ${
                 showAchievementCelebration 
                   ? 'border-fuchsia-500 shadow-[0_0_70px_rgba(217,70,239,0.5)]' 
                   : getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests) 
@@ -2673,10 +3165,10 @@ export default function App() {
                 <X className="w-6 h-6" />
               </button>
 
-              <div className="overflow-y-auto flex-1 custom-scrollbar">
+              <div className="overflow-y-auto flex-1 custom-scrollbar" data-modal-scroll="true">
                 {getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests) ? (
                   <>
-                    <div className="w-full h-[35vh] md:h-[45vh] bg-white/5 flex items-center justify-center overflow-hidden border-b border-white/10 relative">
+                    <div className="w-full h-[220px] md:h-[350px] bg-white/5 flex items-center justify-center overflow-hidden border-b border-white/10 relative">
                       {showAchievementCelebration && (
                         <motion.div 
                           animate={{ rotate: 360 }}
@@ -2687,7 +3179,7 @@ export default function App() {
                       <img 
                         src={graphicAsset(selectedAchievement.image)} 
                         alt={selectedAchievement.title}
-                        className="w-full h-full object-cover drop-shadow-[0_0_30px_rgba(255,255,255,0.2)] relative z-10"
+                        className="w-full h-full object-cover object-center drop-shadow-[0_0_30px_rgba(255,255,255,0.2)] relative z-10"
                       />
                     </div>
 

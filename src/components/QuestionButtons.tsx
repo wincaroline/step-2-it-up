@@ -17,8 +17,8 @@ export const QuestionButtons = React.memo(function QuestionButtons({
 }: QuestionButtonsProps) {
   const getButtonClass = (amount: number) => {
     const base = isHistoryModal
-      ? 'font-black text-[10px] sm:text-[11px] transition-all border-b-2 sm:border-b-[3px] active:border-b-0 active:translate-y-0.5 rounded-lg flex-1 min-w-0 px-1 sm:px-1.5 py-2 tabular-nums'
-      : 'font-black text-sm transition-all border-b-4 active:border-b-0 active:translate-y-1 rounded-xl flex-1 py-3';
+      ? 'question-count-clay-btn font-black text-[10px] sm:text-[11px] transition-all rounded-lg flex-1 min-w-0 px-2 py-2 tabular-nums'
+      : 'question-count-clay-btn font-black text-sm transition-all rounded-xl flex-1 px-2 sm:px-2.5 py-3';
 
     if (amount < 0) {
       if (isSleepMode) return `${base} bg-gray-800 border-gray-950 text-white hover:bg-gray-700`;
