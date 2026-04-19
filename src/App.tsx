@@ -158,26 +158,13 @@ function mergeBonusPointsHistoryDay(
   return next;
 }
 
-/** Staggered fade-up for main page sections on initial load */
-const mainColumnReveal = {
-  hidden: {},
-  visible: {
-    transition: {
-      staggerChildren: 0.085,
-      delayChildren: 0.05,
-    },
-  },
-} as const;
-
-const mainSectionReveal = {
-  hidden: { opacity: 0, y: 28 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.52,
-      ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-    },
+/** Fade-up props for main page panels — applied per section so nothing is staggered via parent variants. */
+const mainSectionLoadProps = {
+  initial: { opacity: 0, y: 36 },
+  animate: { opacity: 1, y: 0 },
+  transition: {
+    duration: 0.95,
+    ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
   },
 } as const;
 
@@ -2363,14 +2350,9 @@ export default function App() {
       <main className="relative z-10 flex-1 w-full max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         
         {/* Left Column: Progress & Actions */}
-        <motion.div
-          className="flex flex-col gap-8"
-          variants={mainColumnReveal}
-          initial="hidden"
-          animate="visible"
-        >
+        <div className="flex flex-col gap-8">
           {/* Question Tracker — uses `.section-panel-ocean-frost` (see index.css) */}
-          <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6">
+          <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6">
             {(isWarningMode || isSleepMode) && (
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
@@ -2438,7 +2420,7 @@ export default function App() {
           </motion.section>
 
           {(isWarningMode || isSleepMode) && (
-            <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 lg:hidden">
+            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 lg:hidden">
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
               />
@@ -2454,7 +2436,7 @@ export default function App() {
           )}
 
           {/* Level Section (Mobile Reorder) */}
-          <motion.div variants={mainSectionReveal} className="lg:hidden">
+          <motion.div {...mainSectionLoadProps} className="lg:hidden">
             <LevelSection
               currentLevel={currentLevel}
               currentLevelIndex={currentLevelIndex}
@@ -2470,7 +2452,7 @@ export default function App() {
           </motion.div>
 
           {/* Practice Test Reminder */}
-          <motion.div variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
+          <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
             <div
               aria-hidden
               className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
@@ -2544,7 +2526,7 @@ export default function App() {
           </motion.div>
 
           {/* Footer Stats */}
-          <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 space-y-6">
+          <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 space-y-6">
             <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">My Stats</h2>
             <div className="grid grid-cols-3 gap-6">
               <div className="flex flex-col items-center text-center">
@@ -2735,7 +2717,7 @@ export default function App() {
               />
             </div>
           </motion.section>
-          <motion.div variants={mainSectionReveal} className="hidden lg:block w-full">
+          <motion.div {...mainSectionLoadProps} className="hidden lg:block w-full">
             <AchievementsSection 
               totalQuestions={totalQuestions} 
               bonusPoints={bonusPoints}
@@ -2747,17 +2729,12 @@ export default function App() {
               className="hidden lg:flex" 
             />
           </motion.div>
-        </motion.div>
+        </div>
 
         {/* Right Column: Level & Stats */}
-        <motion.div
-          className="flex flex-col gap-8"
-          variants={mainColumnReveal}
-          initial="hidden"
-          animate="visible"
-        >
+        <div className="flex flex-col gap-8">
           {(isWarningMode || isSleepMode) && (
-            <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 hidden lg:flex w-full flex-col items-center text-center gap-6 font-serious">
+            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden lg:flex w-full flex-col items-center text-center gap-6 font-serious">
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
               />
@@ -2773,7 +2750,7 @@ export default function App() {
           )}
 
           {/* Level Section */}
-          <motion.div variants={mainSectionReveal} className="hidden lg:block">
+          <motion.div {...mainSectionLoadProps} className="hidden lg:block">
             <LevelSection
               currentLevel={currentLevel}
               currentLevelIndex={currentLevelIndex}
@@ -2790,7 +2767,7 @@ export default function App() {
 
           {/* History Section — month calendars from study start through exam; height grows with date range */}
           <motion.section
-            variants={mainSectionReveal}
+            {...mainSectionLoadProps}
             className="section-panel-ocean-frost overflow-visible p-6 flex flex-col items-center gap-6"
           >
             <div className="flex items-center gap-3">
@@ -2801,7 +2778,7 @@ export default function App() {
             <div className="w-full flex flex-col gap-8">{historyCalendarMonths}</div>
           </motion.section>
 
-          <motion.div variants={mainSectionReveal} className="lg:hidden w-full">
+          <motion.div {...mainSectionLoadProps} className="lg:hidden w-full">
             <AchievementsSection 
               totalQuestions={totalQuestions} 
               bonusPoints={bonusPoints}
@@ -2813,7 +2790,7 @@ export default function App() {
               className="lg:hidden" 
             />
           </motion.div>
-        </motion.div>
+        </div>
 
       </main>
 
