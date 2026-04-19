@@ -3321,12 +3321,9 @@ export default function App() {
               <div className={`${modalBodyScrollClass} p-6 sm:p-8 space-y-5`} data-modal-scroll="true">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-blue-900 text-2xl sm:text-3xl font-black uppercase leading-tight">
+                    <h2 className="font-sans text-blue-900 text-2xl sm:text-3xl font-extrabold leading-tight">
                       Sign in with Google
                     </h2>
-                    <p className="text-amber-800 font-black text-[10px] uppercase tracking-widest mt-2">
-                      Local progress on this device
-                    </p>
                   </div>
                   <button
                     type="button"
@@ -3338,36 +3335,29 @@ export default function App() {
                   </button>
                 </div>
 
-                <p className="text-gray-700 text-sm sm:text-base font-medium leading-relaxed">
-                  Your progress on this device is stored only in your browser. After you sign in with Google, this app
-                  loads your saved progress from your Google account instead. Without choosing how to merge,{' '}
-                  <span className="font-black text-blue-950">you can lose this device&apos;s progress</span> when it is
-                  replaced by what is already in Google (if any).
+                <p className="font-sans text-gray-700 text-base sm:text-lg leading-relaxed">
+                  You have data saved locally in your browser. Are you okay with overriding that when you sign in with
+                  Google?
                 </p>
 
                 <div className="flex flex-col gap-3 pt-1">
                   <button
                     type="button"
-                    onClick={handleGoogleLoginSaveLocalThenSignIn}
+                    onClick={handleGoogleLoginClearLocalThenSignIn}
                     disabled={authActionPending}
-                    className="question-count-clay-btn flex flex-col items-stretch gap-1 w-full bg-sky-600 border-2 border-sky-800 text-white py-3.5 px-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-sky-700 transition-all disabled:opacity-50 text-left"
+                    className="question-count-clay-btn font-sans w-full bg-sky-600 border-2 border-sky-800 text-white py-4 px-4 sm:px-5 rounded-2xl font-bold text-base sm:text-lg tracking-normal leading-snug hover:bg-sky-700 transition-all disabled:opacity-50 text-left"
                   >
-                    <span>A — Save this device&apos;s progress to Google</span>
-                    <span className="text-sky-100 font-medium normal-case text-xs tracking-normal">
-                      Uploads what you have here now. If you already have progress in Google, this replaces it with this
-                      device&apos;s copy.
-                    </span>
+                    Yes, override local data
                   </button>
                   <button
                     type="button"
-                    onClick={handleGoogleLoginClearLocalThenSignIn}
+                    onClick={handleGoogleLoginSaveLocalThenSignIn}
                     disabled={authActionPending}
-                    className="question-count-clay-btn flex flex-col items-stretch gap-1 w-full bg-white border-2 border-gray-300 text-gray-900 py-3.5 px-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50 text-left"
+                    className="question-count-clay-btn font-sans flex flex-col items-stretch gap-1.5 w-full bg-white border-2 border-gray-300 py-4 px-4 sm:px-5 rounded-2xl font-bold tracking-normal hover:bg-gray-50 transition-all disabled:opacity-50 text-left"
                   >
-                    <span>B — Discard this device&apos;s progress and use Google only</span>
-                    <span className="text-gray-600 font-medium normal-case text-xs tracking-normal">
-                      Clears local progress here, then signs you in and loads whatever is already saved to your Google
-                      account—without overwriting it from this browser.
+                    <span className="text-base sm:text-lg text-red-700">No, save local data to Google</span>
+                    <span className="text-red-600 font-medium text-xs sm:text-sm tracking-normal">
+                      This will delete any existing data in your Google account.
                     </span>
                   </button>
                 </div>
