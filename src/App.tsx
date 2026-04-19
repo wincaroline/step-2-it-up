@@ -2571,7 +2571,7 @@ export default function App() {
                   <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-teal-300'}`}>{totalExperiencePoints}</span>
                 </div>
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
-                  Experience Points
+                  Total XP
                 </span>
               </div>
               <div className="flex flex-col items-center text-center">
@@ -2670,7 +2670,7 @@ export default function App() {
                   </span>
                 </div>
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
-                  Avg Questions (Last 3 Days)
+                  Avg Qs (Last 3 Days)
                 </span>
               </div>
               <div className="flex flex-col items-center text-center">
@@ -2719,7 +2719,7 @@ export default function App() {
                   })()}
                 </div>
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
-                  Record Questions In Day
+                  Record Qs in Day
                 </span>
               </div>
             </div>
