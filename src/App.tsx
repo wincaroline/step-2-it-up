@@ -39,14 +39,28 @@ import {
   MILESTONE_1,
   DEFAULT_EXAM_DATE_KEY,
   RECORD_DAY_MODAL_LAST_SHOWN_KEY,
+  ONBOARDING_COMPLETE_STORAGE_KEY,
 } from './constants';
-import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls, buildPracticeTestChartSeries } from './utils';
+import {
+  calculateCurrentStreak,
+  getAchievementStatus,
+  dateKeyFromDate,
+  getHistoryColor,
+  PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS,
+  publicAsset,
+  graphicAsset,
+  collectAllGraphicAssetUrls,
+  preloadGraphicUrls,
+  buildPracticeTestChartSeries,
+  formatExamDateLabel,
+} from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
 import { QuestionButtons } from './components/QuestionButtons';
 import { PracticeTestScoresChart, type PracticeTestChartPress } from './components/PracticeTestScoresChart';
+import { OnboardingScreen } from './components/OnboardingScreen';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
@@ -82,15 +96,20 @@ function computePracticeTestCreditFromRawInputs(questionsRaw: string, percentRaw
   return computePracticeTestQuestionsCredit(q, p);
 }
 
-function formatExamDateLabel(key: string): string {
-  const parts = key.split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return key;
-  const [y, m, d] = parts;
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+function hasLocalPriorUsage(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const rawHistory = localStorage.getItem('history');
+    if (rawHistory) {
+      const parsed = JSON.parse(rawHistory) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return true;
+    }
+    const tq = localStorage.getItem('totalQuestions');
+    if (tq != null && parseInt(tq, 10) > 0) return true;
+  } catch {
+    // ignore corrupt storage
+  }
+  return false;
 }
 
 function clampDailyGoal(n: number): number {
@@ -195,6 +214,9 @@ export default function App() {
   });
   const [editingExamDate, setEditingExamDate] = useState(false);
   const [editingDailyGoal, setEditingDailyGoal] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingExamDraft, setOnboardingExamDraft] = useState(DEFAULT_EXAM_DATE_KEY);
+  const [onboardingDailyGoalDraft, setOnboardingDailyGoalDraft] = useState(DAILY_GOAL);
   const [adminSleepModeForceOn, setAdminSleepModeForceOn] = useState(() => {
     return typeof window !== 'undefined' && localStorage.getItem('adminSleepModeForceOn') === 'true';
   });
@@ -508,6 +530,78 @@ export default function App() {
     lastSeenServerTimeMsRef: lastSeenServerTimeMsRef,
     overwriteCloudWithLocalFirstRef,
   });
+
+  const waitingForCloudOnboarding =
+    authResolved &&
+    Boolean(firebaseUser) &&
+    !cloudFirestoreReady &&
+    typeof window !== 'undefined' &&
+    localStorage.getItem(ONBOARDING_COMPLETE_STORAGE_KEY) !== 'true' &&
+    !hasLocalPriorUsage();
+
+  useEffect(() => {
+    if (!authResolved) return;
+
+    if (typeof window !== 'undefined' && localStorage.getItem(ONBOARDING_COMPLETE_STORAGE_KEY) === 'true') {
+      setShowOnboarding(false);
+      return;
+    }
+
+    if (hasLocalPriorUsage()) {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(ONBOARDING_COMPLETE_STORAGE_KEY, 'true');
+      }
+      setShowOnboarding(false);
+      return;
+    }
+
+    if (firebaseUser && !cloudFirestoreReady) {
+      return;
+    }
+
+    if (firebaseUser && cloudFirestoreReady) {
+      const hasProgress = totalQuestions > 0 || Object.keys(history).length > 0;
+      if (hasProgress) {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(ONBOARDING_COMPLETE_STORAGE_KEY, 'true');
+        }
+        setShowOnboarding(false);
+        return;
+      }
+    }
+
+    setShowOnboarding(true);
+  }, [authResolved, firebaseUser, cloudFirestoreReady, totalQuestions, history]);
+
+  useEffect(() => {
+    if (!showOnboarding) return;
+    setOnboardingExamDraft(examDateKey);
+    setOnboardingDailyGoalDraft(dailyGoalQuestions);
+    // Seed drafts only when onboarding opens — not on every exam/goal change while editing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOnboarding]);
+
+  const handleOnboardingContinue = useCallback(() => {
+    const key =
+      typeof onboardingExamDraft === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(onboardingExamDraft)
+        ? onboardingExamDraft
+        : DEFAULT_EXAM_DATE_KEY;
+    setExamDateKey(key);
+    setDailyGoalQuestions(clampDailyGoal(Number(onboardingDailyGoalDraft)));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(ONBOARDING_COMPLETE_STORAGE_KEY, 'true');
+    }
+    setShowOnboarding(false);
+  }, [onboardingExamDraft, onboardingDailyGoalDraft]);
+
+  const handleOnboardingSkip = useCallback(() => {
+    setExamDateKey(DEFAULT_EXAM_DATE_KEY);
+    setDailyGoalQuestions(clampDailyGoal(DAILY_GOAL));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(ONBOARDING_COMPLETE_STORAGE_KEY, 'true');
+    }
+    setShowOnboarding(false);
+  }, []);
 
   useEffect(() => {
     if (!firebaseUser || !cloudFirestoreReady) return;
@@ -3877,6 +3971,24 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {waitingForCloudOnboarding && (
+        <div className="fixed inset-0 z-[117] flex flex-col items-center justify-center gap-4 bg-[#001a2c]/95 backdrop-blur-md px-6">
+          <Anchor className="w-10 h-10 text-cyan-300 animate-pulse" aria-hidden />
+          <p className="text-white font-black uppercase tracking-widest text-sm text-center">Loading…</p>
+        </div>
+      )}
+
+      {showOnboarding && !waitingForCloudOnboarding && (
+        <OnboardingScreen
+          examDateKey={onboardingExamDraft}
+          dailyGoalQuestions={onboardingDailyGoalDraft}
+          onExamDateChange={setOnboardingExamDraft}
+          onDailyGoalChange={setOnboardingDailyGoalDraft}
+          onContinue={handleOnboardingContinue}
+          onSkip={handleOnboardingSkip}
+        />
+      )}
     </div>
   );
 }

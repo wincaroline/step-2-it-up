@@ -857,3 +857,5 @@ export const DEFAULT_EXAM_DATE_KEY = '2026-05-30';
 /** @deprecated Use persisted `examDateKey` / settings; kept as default fallback. */
 export const EXAM_DATE = new Date(DEFAULT_EXAM_DATE_KEY + 'T12:00:00');
 export const RECORD_DAY_MODAL_LAST_SHOWN_KEY = 'recordDayModalLastShownDate';
+/** When `'true'`, first-launch onboarding has been completed or skipped. */
+export const ONBOARDING_COMPLETE_STORAGE_KEY = 'onboardingComplete';

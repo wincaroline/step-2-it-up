@@ -48,6 +48,18 @@ export function dateKeyFromDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Format local calendar `YYYY-MM-DD` for display (matches Settings / History labels). */
+export function formatExamDateLabel(key: string): string {
+  const parts = key.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return key;
+  const [y, m, d] = parts;
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 export function getHistoryColor(count: number, dailyGoal: number = DAILY_GOAL): string {
   const goal = dailyGoal > 0 ? dailyGoal : DAILY_GOAL;
   const halfGoal = goal / 2;
