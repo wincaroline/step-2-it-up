@@ -35,7 +35,7 @@ export const LevelSection: React.FC<LevelSectionProps> = React.memo(({
         <div className={`font-black text-yellow-300 drop-shadow-sm uppercase tracking-[0.2em] leading-none header-text ${isWarningMode ? 'text-lg opacity-60' : 'text-2xl'}`}>
           Level {currentLevelIndex + 1} of 15
         </div>
-        <div className={`font-bold text-white mt-3 drop-shadow-lg header-text ${isWarningMode ? 'text-xl' : 'text-5xl'}`}>
+        <div className={`font-bold text-white mt-3 drop-shadow-lg header-text ${isWarningMode ? 'text-xl' : 'text-4xl'}`}>
           {isWarningMode ? `You're just a little ${currentLevel.name.toLowerCase()}.` : `You are a ${currentLevel.name}!`}
         </div>
       </div>

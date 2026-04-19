@@ -34,9 +34,9 @@ export function OnboardingScreen({
       <motion.div
         initial={{ scale: 0.92, y: 24 }}
         animate={{ scale: 1, y: 0 }}
-        className="bg-white rounded-[3rem] w-[92vw] sm:w-[86vw] max-w-[28rem] border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] overflow-hidden max-h-[90dvh] overflow-y-auto"
+        className="bg-white rounded-[3rem] w-[92vw] sm:w-[86vw] max-w-[28rem] border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] max-h-[90dvh] min-h-0 flex flex-col overflow-hidden"
       >
-        <div className="p-8 space-y-6">
+        <div className="flex-1 min-h-0 min-w-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain p-8 space-y-6">
           <div className="flex flex-col items-center text-center gap-2">
             <div className="flex items-center justify-center gap-2 text-blue-900">
               <Anchor className="w-8 h-8" aria-hidden />
@@ -49,17 +49,17 @@ export function OnboardingScreen({
             </p>
           </div>
 
-          <div className="space-y-4">
-            <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
+          <div className="min-w-0 w-full space-y-4">
+            <div className="min-w-0 p-4 bg-gray-50 rounded-2xl border-2 border-gray-100 box-border">
               <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Exam Date</p>
               <input
                 type="date"
                 value={examDateKey}
                 onChange={(e) => onExamDateChange(e.target.value || DEFAULT_EXAM_DATE_KEY)}
-                className="w-full bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
+                className="block w-full min-w-0 max-w-full box-border bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
               />
             </div>
-            <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
+            <div className="min-w-0 p-4 bg-gray-50 rounded-2xl border-2 border-gray-100 box-border">
               <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">
                 Daily Goal (Questions Per Day)
               </p>
@@ -72,7 +72,7 @@ export function OnboardingScreen({
                   const n = parseInt(e.target.value, 10);
                   if (!Number.isNaN(n)) onDailyGoalChange(n);
                 }}
-                className="w-full bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
+                className="block w-full min-w-0 max-w-full box-border bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
               />
             </div>
           </div>

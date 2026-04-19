@@ -96,6 +96,20 @@ function computePracticeTestCreditFromRawInputs(questionsRaw: string, percentRaw
   return computePracticeTestQuestionsCredit(q, p);
 }
 
+/** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
+const NO_ACHIEVEMENT_CELEBRATION_IDS = new Set(['plankton']);
+
+function achievementIdsForCelebration(newlyAchieved: Achievement[]): Achievement[] {
+  return newlyAchieved.filter((a) => !NO_ACHIEVEMENT_CELEBRATION_IDS.has(a.id));
+}
+
+/** Ensures default-granted badges are in `lastAchievedIds` so they never register as newly unlocked. */
+function mergeDefaultSeenAchievementIds(ids: string[]): string[] {
+  const next = new Set(ids);
+  next.add('plankton');
+  return [...next].sort();
+}
+
 /** True only if the user has real tracked progress — not merely `{ today: 0 }` seeded on first mount. */
 function hasLocalPriorUsage(): boolean {
   if (typeof window === 'undefined') return false;
@@ -129,6 +143,29 @@ function clampDailyGoal(n: number): number {
   if (!Number.isFinite(n)) return DAILY_GOAL;
   return Math.min(9999, Math.max(1, Math.round(n)));
 }
+
+/** Staggered fade-up for main page sections on initial load */
+const mainColumnReveal = {
+  hidden: {},
+  visible: {
+    transition: {
+      staggerChildren: 0.085,
+      delayChildren: 0.05,
+    },
+  },
+} as const;
+
+const mainSectionReveal = {
+  hidden: { opacity: 0, y: 28 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.52,
+      ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+    },
+  },
+} as const;
 
 /** Local evening window 8pm–midnight (`hour` from Date#getHours). Warn if below half of today's goal. */
 function computeAutoWarningMode(hour: number, dailyQuestions: number, dailyGoalQuestions: number): boolean {
@@ -365,8 +402,15 @@ export default function App() {
   const [showAchievementCelebration, setShowAchievementCelebration] = useState(false);
   const [queuedAchievements, setQueuedAchievements] = useState<Achievement[]>([]);
   const [lastAchievedIds, setLastAchievedIds] = useState<string[]>(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('lastAchievedIds') : null;
-    return saved ? JSON.parse(saved) : [];
+    if (typeof window === 'undefined') return mergeDefaultSeenAchievementIds([]);
+    const saved = localStorage.getItem('lastAchievedIds');
+    if (!saved) return mergeDefaultSeenAchievementIds([]);
+    try {
+      const parsed = JSON.parse(saved) as unknown;
+      return mergeDefaultSeenAchievementIds(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch {
+      return mergeDefaultSeenAchievementIds([]);
+    }
   });
   const [levelMusic, setLevelMusic] = useState<HTMLAudioElement | null>(null);
   const [simulatedTime, setSimulatedTime] = useState<Date | null>(null);
@@ -421,7 +465,7 @@ export default function App() {
     setPracticeTestQuestionCredits(p.practiceTestQuestionCredits);
     setPracticeTestQuestionCounts(p.practiceTestQuestionCounts);
     setPracticeTestPercents(p.practiceTestPercents);
-    setLastAchievedIds(p.lastAchievedIds);
+    setLastAchievedIds(mergeDefaultSeenAchievementIds(p.lastAchievedIds));
     setExamDateKey(p.examDateKey);
     setDailyGoalQuestions(clampDailyGoal(p.dailyGoalQuestions));
     if (typeof localStorage !== 'undefined') {
@@ -720,25 +764,28 @@ export default function App() {
         getAchievementStatus(a, newTotal, historyForAchievements, effectiveTime, practiceTestsUsed) &&
         !lastAchievedIds.includes(a.id)
     );
+    const toCelebrate = achievementIdsForCelebration(newlyAchieved);
     if (newlyAchieved.length > 0) {
-      const [first, ...rest] = newlyAchieved;
+      const [first, ...rest] = toCelebrate;
       const deferAchievementModal =
         selectedAchievement || showAchievementCelebration || selectedHistoryDate;
-      if (deferAchievementModal) {
-        setQueuedAchievements((prev) => {
-          const existing = new Set(prev.map((a) => a.id));
-          const additions = newlyAchieved.filter((a) => !existing.has(a.id));
-          return [...prev, ...additions];
-        });
-      } else {
-        setSelectedAchievement(first);
-        setShowAchievementCelebration(true);
-        if (rest.length > 0) {
+      if (toCelebrate.length > 0) {
+        if (deferAchievementModal) {
           setQueuedAchievements((prev) => {
             const existing = new Set(prev.map((a) => a.id));
-            const additions = rest.filter((a) => !existing.has(a.id));
+            const additions = toCelebrate.filter((a) => !existing.has(a.id));
             return [...prev, ...additions];
           });
+        } else {
+          setSelectedAchievement(first);
+          setShowAchievementCelebration(true);
+          if (rest.length > 0) {
+            setQueuedAchievements((prev) => {
+              const existing = new Set(prev.map((a) => a.id));
+              const additions = rest.filter((a) => !existing.has(a.id));
+              return [...prev, ...additions];
+            });
+          }
         }
       }
       setLastAchievedIds(prev => {
@@ -746,7 +793,7 @@ export default function App() {
         localStorage.setItem('lastAchievedIds', JSON.stringify(next));
         return next;
       });
-      if (!selectedHistoryDate) {
+      if (!selectedHistoryDate && toCelebrate.length > 0) {
         triggerFireworks();
 
         if (!isMuted) {
@@ -844,6 +891,9 @@ export default function App() {
 
   const daysUntilExam = Math.ceil((examCalendarDate.getTime() - effectiveTime.getTime()) / (1000 * 60 * 60 * 24));
   const modalPanelSizeClass = 'w-[92vw] sm:w-[86vw] lg:w-[74vw] max-w-[44rem] max-h-[90dvh]';
+  /** Outer modal frame: clips to rounded border; scrolling happens in a child using {@link modalBodyScrollClass}. */
+  const modalShellLayoutClass = 'min-h-0 flex flex-col overflow-hidden';
+  const modalBodyScrollClass = 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain';
 
   // --- Effects ---
   useEffect(() => {
@@ -1080,7 +1130,18 @@ export default function App() {
       return;
     }
     if (queuedAchievements.length > 0) {
-      const [next, ...rest] = queuedAchievements;
+      const celebrationQueue = achievementIdsForCelebration(queuedAchievements);
+      if (celebrationQueue.length === 0) {
+        setQueuedAchievements([]);
+        setSelectedAchievement(null);
+        setShowAchievementCelebration(false);
+        if (levelMusic) {
+          levelMusic.pause();
+          setLevelMusic(null);
+        }
+        return;
+      }
+      const [next, ...rest] = celebrationQueue;
       setQueuedAchievements(rest);
       setSelectedAchievement(next);
       setShowAchievementCelebration(true);
@@ -1274,7 +1335,12 @@ export default function App() {
     if (selectedHistoryDate) return;
     if (showAchievementCelebration || selectedAchievement) return;
     if (queuedAchievements.length === 0) return;
-    const [next, ...rest] = queuedAchievements;
+    const filteredQueue = achievementIdsForCelebration(queuedAchievements);
+    if (filteredQueue.length === 0) {
+      setQueuedAchievements([]);
+      return;
+    }
+    const [next, ...rest] = filteredQueue;
     setQueuedAchievements(rest);
     setSelectedAchievement(next);
     setShowAchievementCelebration(true);
@@ -1297,24 +1363,27 @@ export default function App() {
         !lastAchievedIds.includes(a.id)
     );
     if (newlyAchieved.length === 0) return;
-    const [first, ...rest] = newlyAchieved;
+    const toCelebrate = achievementIdsForCelebration(newlyAchieved);
+    const [first, ...rest] = toCelebrate;
     const deferAchievementModal =
       selectedAchievement || showAchievementCelebration || selectedHistoryDate;
-    if (deferAchievementModal) {
-      setQueuedAchievements((prev) => {
-        const existing = new Set(prev.map((a) => a.id));
-        const additions = newlyAchieved.filter((a) => !existing.has(a.id));
-        return [...prev, ...additions];
-      });
-    } else {
-      setSelectedAchievement(first);
-      setShowAchievementCelebration(true);
-      if (rest.length > 0) {
+    if (toCelebrate.length > 0) {
+      if (deferAchievementModal) {
         setQueuedAchievements((prev) => {
           const existing = new Set(prev.map((a) => a.id));
-          const additions = rest.filter((a) => !existing.has(a.id));
+          const additions = toCelebrate.filter((a) => !existing.has(a.id));
           return [...prev, ...additions];
         });
+      } else {
+        setSelectedAchievement(first);
+        setShowAchievementCelebration(true);
+        if (rest.length > 0) {
+          setQueuedAchievements((prev) => {
+            const existing = new Set(prev.map((a) => a.id));
+            const additions = rest.filter((a) => !existing.has(a.id));
+            return [...prev, ...additions];
+          });
+        }
       }
     }
     setLastAchievedIds((prev) => {
@@ -1322,7 +1391,7 @@ export default function App() {
       localStorage.setItem('lastAchievedIds', JSON.stringify(next));
       return next;
     });
-    if (!selectedHistoryDate) {
+    if (!selectedHistoryDate && toCelebrate.length > 0) {
       triggerFireworks();
       if (!isMuted) {
         const music = new Audio(publicAsset('assets/dancemusic.mp3'));
@@ -1771,25 +1840,28 @@ export default function App() {
 
     // Check for achievements with the new history
     const newlyAchieved = ACHIEVEMENTS.filter(a => getAchievementStatus(a, newTotal, newHistory, today, totalPracticeTests) && !lastAchievedIds.includes(a.id));
+    const toCelebrate = achievementIdsForCelebration(newlyAchieved);
     if (newlyAchieved.length > 0) {
-      const [first, ...rest] = newlyAchieved;
+      const [first, ...rest] = toCelebrate;
       const deferAchievementModal =
         selectedAchievement || showAchievementCelebration || selectedHistoryDate;
-      if (deferAchievementModal) {
-        setQueuedAchievements((prev) => {
-          const existing = new Set(prev.map((a) => a.id));
-          const additions = newlyAchieved.filter((a) => !existing.has(a.id));
-          return [...prev, ...additions];
-        });
-      } else {
-        setSelectedAchievement(first);
-        setShowAchievementCelebration(true);
-        if (rest.length > 0) {
+      if (toCelebrate.length > 0) {
+        if (deferAchievementModal) {
           setQueuedAchievements((prev) => {
             const existing = new Set(prev.map((a) => a.id));
-            const additions = rest.filter((a) => !existing.has(a.id));
+            const additions = toCelebrate.filter((a) => !existing.has(a.id));
             return [...prev, ...additions];
           });
+        } else {
+          setSelectedAchievement(first);
+          setShowAchievementCelebration(true);
+          if (rest.length > 0) {
+            setQueuedAchievements((prev) => {
+              const existing = new Set(prev.map((a) => a.id));
+              const additions = rest.filter((a) => !existing.has(a.id));
+              return [...prev, ...additions];
+            });
+          }
         }
       }
       setLastAchievedIds(prev => {
@@ -1797,7 +1869,7 @@ export default function App() {
         localStorage.setItem('lastAchievedIds', JSON.stringify(next));
         return next;
       });
-      if (!selectedHistoryDate) {
+      if (!selectedHistoryDate && toCelebrate.length > 0) {
         triggerFireworks();
 
         if (!isMuted) {
@@ -1902,9 +1974,14 @@ export default function App() {
       <main className="relative z-10 flex-1 w-full max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         
         {/* Left Column: Progress & Actions */}
-        <div className="flex flex-col gap-8">
+        <motion.div
+          className="flex flex-col gap-8"
+          variants={mainColumnReveal}
+          initial="hidden"
+          animate="visible"
+        >
           {/* Question Tracker — uses `.section-panel-ocean-frost` (see index.css) */}
-          <section className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6">
+          <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6">
             {(isWarningMode || isSleepMode) && (
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
@@ -1960,10 +2037,10 @@ export default function App() {
                 {getMotivation()}
               </div>
             )}
-          </section>
+          </motion.section>
 
           {(isWarningMode || isSleepMode) && (
-            <section className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 lg:hidden">
+            <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 lg:hidden">
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
               />
@@ -1975,11 +2052,11 @@ export default function App() {
               <p className={`${isSleepMode ? 'text-blue-300' : 'text-red-500'} font-black text-2xl italic relative z-10`}>
                 {isSleepMode ? "It's time to rest..." : (goalMessage || "The abyss is watching.")}
               </p>
-            </section>
+            </motion.section>
           )}
 
           {/* Level Section (Mobile Reorder) */}
-          <div className="lg:hidden">
+          <motion.div variants={mainSectionReveal} className="lg:hidden">
             <LevelSection
               currentLevel={currentLevel}
               currentLevelIndex={currentLevelIndex}
@@ -1992,10 +2069,10 @@ export default function App() {
               setShowVariantModal={setShowVariantModal}
               setShowLevelMap={setShowLevelMap}
             />
-          </div>
+          </motion.div>
 
           {/* Practice Test Reminder */}
-          <div className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
+          <motion.div variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
             <div
               aria-hidden
               className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
@@ -2066,10 +2143,10 @@ export default function App() {
               )}
             </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Footer Stats */}
-          <section className="section-panel-ocean-frost p-6 space-y-6">
+          <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 space-y-6">
             <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">My Stats</h2>
             <div className="grid grid-cols-2 gap-6">
               <div className="flex flex-col items-center text-center">
@@ -2188,21 +2265,28 @@ export default function App() {
                 onPointPress={handlePracticeChartPress}
               />
             </div>
-          </section>
-          <AchievementsSection 
-            totalQuestions={totalQuestions} 
-            totalPracticeTests={totalPracticeTests}
-            history={history}
-            effectiveTime={effectiveTime}
-            setSelectedAchievement={setSelectedAchievement} 
-            className="hidden lg:flex" 
-          />
-        </div>
+          </motion.section>
+          <motion.div variants={mainSectionReveal} className="hidden lg:block w-full">
+            <AchievementsSection 
+              totalQuestions={totalQuestions} 
+              totalPracticeTests={totalPracticeTests}
+              history={history}
+              effectiveTime={effectiveTime}
+              setSelectedAchievement={setSelectedAchievement} 
+              className="hidden lg:flex" 
+            />
+          </motion.div>
+        </motion.div>
 
         {/* Right Column: Level & Stats */}
-        <div className="flex flex-col gap-8">
+        <motion.div
+          className="flex flex-col gap-8"
+          variants={mainColumnReveal}
+          initial="hidden"
+          animate="visible"
+        >
           {(isWarningMode || isSleepMode) && (
-            <section className="section-panel-ocean-frost p-6 hidden lg:flex w-full flex-col items-center text-center gap-6 font-serious">
+            <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 hidden lg:flex w-full flex-col items-center text-center gap-6 font-serious">
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
               />
@@ -2214,11 +2298,11 @@ export default function App() {
               <p className={`${isSleepMode ? 'text-blue-300' : 'text-red-500'} font-black text-2xl italic relative z-10`}>
                 {isSleepMode ? "It's time to rest..." : (goalMessage || "The abyss is watching.")}
               </p>
-            </section>
+            </motion.section>
           )}
 
           {/* Level Section */}
-          <div className="hidden lg:block">
+          <motion.div variants={mainSectionReveal} className="hidden lg:block">
             <LevelSection
               currentLevel={currentLevel}
               currentLevelIndex={currentLevelIndex}
@@ -2231,10 +2315,10 @@ export default function App() {
               setShowVariantModal={setShowVariantModal}
               setShowLevelMap={setShowLevelMap}
             />
-          </div>
+          </motion.div>
 
           {/* History Section */}
-          <section className="section-panel-ocean-frost p-6 flex flex-col items-center gap-6">
+          <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col items-center gap-6">
             <div className="flex items-center gap-3">
               <Calendar className="w-6 h-6 text-yellow-300" />
               <h2 className="text-2xl font-black text-white uppercase tracking-widest">History</h2>
@@ -2356,17 +2440,19 @@ export default function App() {
                 return rows;
               })()}
             </div>
-          </section>
+          </motion.section>
 
-          <AchievementsSection 
-            totalQuestions={totalQuestions} 
-            totalPracticeTests={totalPracticeTests}
-            history={history}
-            effectiveTime={effectiveTime}
-            setSelectedAchievement={setSelectedAchievement} 
-            className="lg:hidden" 
-          />
-        </div>
+          <motion.div variants={mainSectionReveal} className="lg:hidden w-full">
+            <AchievementsSection 
+              totalQuestions={totalQuestions} 
+              totalPracticeTests={totalPracticeTests}
+              history={history}
+              effectiveTime={effectiveTime}
+              setSelectedAchievement={setSelectedAchievement} 
+              className="lg:hidden" 
+            />
+          </motion.div>
+        </motion.div>
 
       </main>
 
@@ -2408,9 +2494,9 @@ export default function App() {
               initial={{ scale: 0.9, y: 24 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
-              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-cyan-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-4 border-cyan-400 shadow-2xl text-left`}
             >
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8`} data-modal-scroll="true">
               <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
                 Log practice test
               </h3>
@@ -2482,6 +2568,7 @@ export default function App() {
                   Continue
                 </button>
               </div>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -2497,9 +2584,9 @@ export default function App() {
               initial={{ scale: 0.9, y: 24 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
-              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-emerald-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-4 border-emerald-400 shadow-2xl text-left`}
             >
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8`} data-modal-scroll="true">
               <h3 className="text-2xl font-black uppercase tracking-tight text-emerald-950 mb-2 text-center">
                 Great Progress!
               </h3>
@@ -2570,6 +2657,7 @@ export default function App() {
               >
                 Awesome!
               </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -2587,9 +2675,9 @@ export default function App() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
               onClick={(e) => e.stopPropagation()}
-              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-cyan-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-4 border-cyan-400 shadow-2xl text-left`}
             >
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8`} data-modal-scroll="true">
               {practiceScoreSpotlight.isLatest ? (
                 <>
                   <div className="flex justify-center mb-4">
@@ -2757,6 +2845,7 @@ export default function App() {
                   </div>
                 </>
               )}
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -2773,9 +2862,9 @@ export default function App() {
               initial={{ scale: 0.9, y: 24 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 24 }}
-              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} border-4 border-cyan-400 shadow-2xl p-6 sm:p-8 text-left overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-4 border-cyan-400 shadow-2xl text-left`}
             >
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8`} data-modal-scroll="true">
               <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
                 Log Set
               </h3>
@@ -2839,6 +2928,7 @@ export default function App() {
                   Confirm
                 </button>
               </div>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -2855,10 +2945,9 @@ export default function App() {
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative`}
             >
-              <div className="w-full h-[220px] md:h-[350px] overflow-hidden rounded-t-[2.2rem] bg-cyan-50">
+              <div className="w-full h-[220px] md:h-[350px] shrink-0 overflow-hidden bg-cyan-50">
                 <motion.img
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -2874,7 +2963,7 @@ export default function App() {
                   referrerPolicy="no-referrer"
                 />
               </div>
-              <div className="p-8 pt-6 relative z-10 space-y-5">
+              <div className={`${modalBodyScrollClass} p-8 pt-6 relative z-10 space-y-5`} data-modal-scroll="true">
                 {logWinCelebrate.tier === 80 && (
                   <h2 className="text-fuchsia-600 text-3xl sm:text-4xl font-black uppercase leading-none">
                     You&apos;re a rockstar!
@@ -3227,10 +3316,9 @@ export default function App() {
               initial={{ scale: 0.94, y: 24 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.94, y: 24 }}
-              className={`bg-white rounded-[2rem] sm:rounded-[3rem] ${modalPanelSizeClass} border-8 border-amber-400 shadow-[0_0_50px_rgba(0,0,0,0.35)] relative`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[2rem] sm:rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-8 border-amber-400 shadow-[0_0_50px_rgba(0,0,0,0.35)] relative`}
             >
-              <div className="p-6 sm:p-8 space-y-5">
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8 space-y-5`} data-modal-scroll="true">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-blue-900 text-2xl sm:text-3xl font-black uppercase leading-tight">
@@ -3300,10 +3388,9 @@ export default function App() {
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] relative overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] relative`}
             >
-              <div className="p-8 space-y-6">
+              <div className={`${modalBodyScrollClass} p-8 space-y-6 custom-scrollbar`} data-modal-scroll="true">
                 <div className="flex items-center justify-between">
                   <h2 className="text-blue-900 text-3xl font-black uppercase">Settings</h2>
                   <button 
@@ -3312,43 +3399,6 @@ export default function App() {
                   >
                     <X className="w-6 h-6 text-gray-400" />
                   </button>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">Account</div>
-                  {!authResolved ? (
-                    <p className="text-sm font-medium text-gray-400">Checking sign-in…</p>
-                  ) : firebaseUser ? (
-                    <div className="flex flex-col gap-3 p-4 bg-sky-50 rounded-2xl border-2 border-sky-100">
-                      <div className="flex items-start gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-sky-600">Signed in</p>
-                          <p className="font-black text-blue-950 truncate text-sm mt-1">
-                            {firebaseUser.email ?? firebaseUser.displayName ?? 'Google user'}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleSignOut}
-                        disabled={authActionPending}
-                        className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-sky-200 text-sky-900 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-sky-50 transition-all disabled:opacity-50"
-                      >
-                        <LogOut className="w-4 h-4 shrink-0" />
-                        {authActionPending ? 'Signing out…' : 'Sign out'}
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleContinueWithGoogleClick}
-                      disabled={authActionPending}
-                      className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
-                    >
-                      <LogIn className="w-4 h-4 shrink-0" />
-                      {authActionPending ? 'Opening Google…' : 'Log In with Google'}
-                    </button>
-                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -3649,6 +3699,43 @@ export default function App() {
                     </>
                   )}
 
+                <div className="space-y-4">
+                  <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">Account</div>
+                  {!authResolved ? (
+                    <p className="text-sm font-medium text-gray-400">Checking sign-in…</p>
+                  ) : firebaseUser ? (
+                    <div className="flex flex-col gap-3 p-4 bg-sky-50 rounded-2xl border-2 border-sky-100">
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-sky-600">Signed in</p>
+                          <p className="font-black text-blue-950 truncate text-sm mt-1">
+                            {firebaseUser.email ?? firebaseUser.displayName ?? 'Google user'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSignOut}
+                        disabled={authActionPending}
+                        className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-red-600 border-2 border-red-700 text-white py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-red-700 hover:border-red-800 transition-all disabled:opacity-50"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        {authActionPending ? 'Signing out…' : 'Sign out'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleContinueWithGoogleClick}
+                      disabled={authActionPending}
+                      className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
+                    >
+                      <LogIn className="w-4 h-4 shrink-0" />
+                      {authActionPending ? 'Opening Google…' : 'Log In with Google'}
+                    </button>
+                  )}
+                </div>
+
                 <button 
                   onClick={() => setShowSettingsModal(false)}
                   className="question-count-clay-btn w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
@@ -3672,10 +3759,9 @@ export default function App() {
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative`}
             >
-              <div className="w-full h-[220px] md:h-[350px] bg-cyan-50 overflow-hidden rounded-t-[2.2rem]">
+              <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
                 <motion.img 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -3685,7 +3771,7 @@ export default function App() {
                   referrerPolicy="no-referrer"
                 />
               </div>
-              <div className="p-8 pt-6 relative z-10 space-y-6">
+              <div className={`${modalBodyScrollClass} p-8 pt-6 relative z-10 space-y-6`} data-modal-scroll="true">
                 <div className="space-y-2">
                   <h2 className="text-cyan-900 text-4xl font-black uppercase leading-none">Goal Reached!</h2>
                   <p className="text-cyan-600 font-bold text-lg leading-tight">{goalMessage}</p>
@@ -3717,10 +3803,9 @@ export default function App() {
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative overflow-y-auto overflow-x-hidden`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative`}
             >
-              <div className="w-full h-[220px] md:h-[350px] bg-cyan-50 overflow-hidden rounded-t-[2.2rem]">
+              <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
                 <motion.img 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -3730,7 +3815,7 @@ export default function App() {
                   referrerPolicy="no-referrer"
                 />
               </div>
-              <div className="p-8 pt-6 relative z-10 space-y-6">
+              <div className={`${modalBodyScrollClass} p-8 pt-6 relative z-10 space-y-6`} data-modal-scroll="true">
                 <div className="space-y-2">
                   <h2 className="text-cyan-900 text-4xl font-black uppercase leading-none">New Record!</h2>
                   <p className="text-cyan-600 font-bold text-lg leading-tight">
@@ -3765,9 +3850,9 @@ export default function App() {
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#00ffff,0_0_100px_#00ffff] relative overflow-y-auto overflow-x-hidden p-6 sm:p-8`}
-              data-modal-scroll="true"
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#00ffff,0_0_100px_#00ffff] relative`}
             >
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8`} data-modal-scroll="true">
               <h2 className="text-cyan-900 text-3xl font-black uppercase leading-none mb-6">Switch Version</h2>
               <div className="grid grid-cols-2 gap-4">
                 {unlockedVariants.map(variant => (
@@ -3789,6 +3874,7 @@ export default function App() {
               >
                 Close
               </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -3895,7 +3981,7 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className={`relative ${modalPanelSizeClass} section-panel-ocean-frost-base border-4 shadow-[0_0_50px_rgba(250,204,21,0.3)] overflow-hidden flex flex-col ${
+              className={`relative ${modalPanelSizeClass} min-h-0 flex flex-col section-panel-ocean-frost-base border-4 shadow-[0_0_50px_rgba(250,204,21,0.3)] overflow-hidden ${
                 showAchievementCelebration 
                   ? 'border-fuchsia-500 shadow-[0_0_70px_rgba(217,70,239,0.5)]' 
                   : getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests) 
@@ -3915,7 +4001,7 @@ export default function App() {
                 <X className="w-6 h-6" />
               </button>
 
-              <div className="overflow-y-auto flex-1 custom-scrollbar" data-modal-scroll="true">
+              <div className={`${modalBodyScrollClass} custom-scrollbar`} data-modal-scroll="true">
                 {getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests) ? (
                   <>
                     <div className="w-full h-[220px] md:h-[350px] bg-white/5 flex items-center justify-center overflow-hidden border-b border-white/10 relative">
