@@ -24,7 +24,7 @@ import {
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
 import { auth, db } from './firebase';
-import { buildProgressFromAppState, saveUserProgress } from './userProgressFirestore';
+import { buildProgressFromAppState, saveUserProgress, stableStringifyProgress } from './userProgressFirestore';
 import { useFirestoreUserProgressListener } from './useFirestoreUserProgressListener';
 import type { UserProgressV1 } from './userProgressSchema';
 
@@ -379,18 +379,37 @@ export default function App() {
 
   const getMigrationPayload = useCallback(() => progressSnapshot, [progressSnapshot]);
 
+  const progressSnapshotRef = useRef(progressSnapshot);
+  progressSnapshotRef.current = progressSnapshot;
+
+  const lastPushedProgressJsonRef = useRef('');
+  const lastSeenServerTimeMsRef = useRef(0);
+
+  useEffect(() => {
+    lastPushedProgressJsonRef.current = '';
+    lastSeenServerTimeMsRef.current = 0;
+  }, [firebaseUser?.uid]);
+
   const cloudFirestoreReady = useFirestoreUserProgressListener({
     uid: firebaseUser?.uid ?? null,
     authResolved,
     getMigrationPayload,
     applyProgress: applyProgressFromCloud,
+    getLocalProgressJson: () => stableStringifyProgress(progressSnapshotRef.current),
+    lastPushedJsonRef: lastPushedProgressJsonRef,
+    lastSeenServerTimeMsRef: lastSeenServerTimeMsRef,
   });
 
   useEffect(() => {
     if (!firebaseUser || !cloudFirestoreReady) return;
     const uid = firebaseUser.uid;
     const t = window.setTimeout(() => {
-      saveUserProgress(db, uid, progressSnapshot).catch((e) => console.error('[Firestore] save failed', e));
+      const payload = progressSnapshotRef.current;
+      saveUserProgress(db, uid, payload)
+        .then(() => {
+          lastPushedProgressJsonRef.current = stableStringifyProgress(payload);
+        })
+        .catch((e) => console.error('[Firestore] save failed', e));
     }, 900);
     return () => window.clearTimeout(t);
   }, [firebaseUser, cloudFirestoreReady, progressSnapshot]);

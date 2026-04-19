@@ -1,4 +1,11 @@
-import { doc, setDoc, serverTimestamp, type Firestore, type DocumentData } from 'firebase/firestore';
+import {
+  doc,
+  setDoc,
+  serverTimestamp,
+  Timestamp,
+  type Firestore,
+  type DocumentData,
+} from 'firebase/firestore';
 import { RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { USER_PROGRESS_VERSION, emptyUserProgress, type UserProgressV1 } from './userProgressSchema';
 
@@ -132,4 +139,29 @@ export function buildProgressFromAppState(args: {
     lastAchievedIds: args.lastAchievedIds,
     recordDayModalLastShown,
   };
+}
+
+export function getUpdatedAtMillis(data: DocumentData | undefined): number {
+  const u = data?.updatedAt;
+  return u instanceof Timestamp ? u.toMillis() : 0;
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  const obj = value as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj).sort()) {
+    sorted[key] = sortKeysDeep(obj[key]);
+  }
+  return sorted;
+}
+
+/** Canonical JSON for comparing local vs remote progress (key order independent). */
+export function stableStringifyProgress(p: UserProgressV1): string {
+  const copy: UserProgressV1 = {
+    ...p,
+    lastAchievedIds: [...p.lastAchievedIds].sort(),
+  };
+  return JSON.stringify(sortKeysDeep(copy));
 }
