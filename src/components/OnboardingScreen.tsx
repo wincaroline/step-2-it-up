@@ -1,7 +1,6 @@
 import { motion } from 'motion/react';
-import { Anchor, Sparkles } from 'lucide-react';
-import { DAILY_GOAL, DEFAULT_EXAM_DATE_KEY } from '../constants';
-import { formatExamDateLabel } from '../utils';
+import { Anchor, LogIn, Sparkles } from 'lucide-react';
+import { DEFAULT_EXAM_DATE_KEY } from '../constants';
 
 type OnboardingScreenProps = {
   examDateKey: string;
@@ -9,7 +8,10 @@ type OnboardingScreenProps = {
   onExamDateChange: (value: string) => void;
   onDailyGoalChange: (value: number) => void;
   onContinue: () => void;
-  onSkip: () => void;
+  /** Shown only when the user may sign in (auth ready, not signed in). */
+  showOptionalGoogleLogin: boolean;
+  onLogInWithGoogle: () => void;
+  authActionPending?: boolean;
 };
 
 export function OnboardingScreen({
@@ -18,7 +20,9 @@ export function OnboardingScreen({
   onExamDateChange,
   onDailyGoalChange,
   onContinue,
-  onSkip,
+  showOptionalGoogleLogin,
+  onLogInWithGoogle,
+  authActionPending = false,
 }: OnboardingScreenProps) {
   return (
     <motion.div
@@ -81,16 +85,20 @@ export function OnboardingScreen({
             >
               Continue
             </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              className="question-count-clay-btn w-full bg-white border-2 border-gray-300 text-gray-800 py-3 px-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all"
-            >
-              Skip — use defaults
-            </button>
-            <p className="text-center text-[10px] text-gray-500 font-medium leading-relaxed">
-              Defaults: {formatExamDateLabel(DEFAULT_EXAM_DATE_KEY)} · {DAILY_GOAL} questions per day
-            </p>
+            {showOptionalGoogleLogin && (
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onLogInWithGoogle}
+                  disabled={authActionPending}
+                  className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-300 text-gray-800 py-3 px-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
+                >
+                  <LogIn className="w-4 h-4 shrink-0" aria-hidden />
+                  {authActionPending ? 'Opening Google…' : 'Log in with Google'}
+                </button>
+                <p className="text-center text-[10px] text-gray-500 font-medium">(Optional)</p>
+              </div>
+            )}
           </div>
         </div>
       </motion.div>

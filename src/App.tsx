@@ -619,15 +619,6 @@ export default function App() {
     setShowOnboarding(false);
   }, [onboardingExamDraft, onboardingDailyGoalDraft]);
 
-  const handleOnboardingSkip = useCallback(() => {
-    setExamDateKey(DEFAULT_EXAM_DATE_KEY);
-    setDailyGoalQuestions(clampDailyGoal(DAILY_GOAL));
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(ONBOARDING_COMPLETE_STORAGE_KEY, 'true');
-    }
-    setShowOnboarding(false);
-  }, []);
-
   useEffect(() => {
     if (!firebaseUser || !cloudFirestoreReady) return;
     const uid = firebaseUser.uid;
@@ -1891,14 +1882,14 @@ export default function App() {
           <div className="flex gap-2 sm:gap-3">
             <button 
               onClick={() => setIsMuted(!isMuted)}
-              className="p-3 bg-white/20 backdrop-blur-md rounded-full border border-white/30 hover:bg-white/30 transition-all active:scale-95 shadow-lg text-white"
+              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-white"
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
             </button>
             <button 
               onClick={() => setShowSettingsModal(true)}
-              className="p-3 bg-white/20 backdrop-blur-md rounded-full border border-white/30 hover:bg-white/30 transition-all active:scale-95 shadow-lg text-white"
+              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-white"
               title="Settings"
             >
               <Settings className="w-5 h-5" />
@@ -2383,10 +2374,10 @@ export default function App() {
       <div
         className={`relative z-10 w-full h-40 shrink-0 ${
           isSleepMode
-            ? 'bg-gradient-to-t from-[#1a2a3a] to-black'
+            ? 'bg-gradient-to-t from-[#04060a] to-[#080c10]'
             : isWarningMode
-              ? 'bg-gradient-to-t from-red-950 to-black'
-              : 'bg-gradient-to-t from-[#7a654a] to-[#a68d71]'
+              ? 'bg-gradient-to-t from-[#100404] via-[#0a0306] to-[#050818]'
+              : 'bg-gradient-to-t from-[#020308] via-[#030610] to-[#050818]'
         } flex items-end justify-around px-4 overflow-hidden pointer-events-none`}
       >
         <div className="absolute inset-0 opacity-30 bg-[url('https://www.transparenttextures.com/patterns/sandpaper.png')] pointer-events-none" />
@@ -4011,7 +4002,9 @@ export default function App() {
           onExamDateChange={setOnboardingExamDraft}
           onDailyGoalChange={setOnboardingDailyGoalDraft}
           onContinue={handleOnboardingContinue}
-          onSkip={handleOnboardingSkip}
+          showOptionalGoogleLogin={authResolved && !firebaseUser}
+          onLogInWithGoogle={handleContinueWithGoogleClick}
+          authActionPending={authActionPending}
         />
       )}
     </div>
