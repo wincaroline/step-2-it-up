@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { 
+import {
   Trophy, 
   ChevronUp, 
   Zap, 
@@ -18,7 +18,15 @@ import {
   TrendingUp,
   Award,
   Flame,
+  LogIn,
+  LogOut,
 } from 'lucide-react';
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+
+import { auth, db } from './firebase';
+import { buildProgressFromAppState, saveUserProgress } from './userProgressFirestore';
+import { useFirestoreUserProgressListener } from './useFirestoreUserProgressListener';
+import type { UserProgressV1 } from './userProgressSchema';
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls, buildPracticeTestChartSeries } from './utils';
@@ -273,6 +281,119 @@ export default function App() {
   const [levelMusic, setLevelMusic] = useState<HTMLAudioElement | null>(null);
   const [simulatedTime, setSimulatedTime] = useState<Date | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
+  const [authActionPending, setAuthActionPending] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
+      setAuthResolved(true);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleGoogleSignIn = useCallback(async () => {
+    setAuthActionPending(true);
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (err) {
+      console.error('Google sign-in failed', err);
+    } finally {
+      setAuthActionPending(false);
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    setAuthActionPending(true);
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Sign-out failed', err);
+    } finally {
+      setAuthActionPending(false);
+    }
+  }, []);
+
+  const applyProgressFromCloud = useCallback((p: UserProgressV1) => {
+    historyRef.current = p.history;
+    setDailyQuestions(p.dailyQuestions);
+    setTotalQuestions(p.totalQuestions);
+    setHistory(p.history);
+    setLastLevel(p.lastLevel);
+    setSelectedVariants(p.selectedVariants);
+    setIsTestMode(p.isTestMode);
+    setIsWarningMode(p.isWarningMode);
+    setPracticeTestCompletionDates(p.practiceTestCompletionDates);
+    setTotalPracticeTests(p.totalPracticeTests);
+    setPracticeTestScores(p.practiceTestScores);
+    setPracticeTestQuestionCredits(p.practiceTestQuestionCredits);
+    setPracticeTestQuestionCounts(p.practiceTestQuestionCounts);
+    setPracticeTestPercents(p.practiceTestPercents);
+    setLastAchievedIds(p.lastAchievedIds);
+    if (typeof localStorage !== 'undefined') {
+      if (p.recordDayModalLastShown) {
+        localStorage.setItem(RECORD_DAY_MODAL_LAST_SHOWN_KEY, p.recordDayModalLastShown);
+      } else {
+        localStorage.removeItem(RECORD_DAY_MODAL_LAST_SHOWN_KEY);
+      }
+    }
+  }, []);
+
+  const progressSnapshot = useMemo(
+    () =>
+      buildProgressFromAppState({
+        dailyQuestions,
+        totalQuestions,
+        history,
+        lastLevel,
+        selectedVariants,
+        isTestMode,
+        isWarningMode,
+        practiceTestCompletionDates,
+        totalPracticeTests,
+        practiceTestScores,
+        practiceTestQuestionCredits,
+        practiceTestQuestionCounts,
+        practiceTestPercents,
+        lastAchievedIds,
+      }),
+    [
+      dailyQuestions,
+      totalQuestions,
+      history,
+      lastLevel,
+      selectedVariants,
+      isTestMode,
+      isWarningMode,
+      practiceTestCompletionDates,
+      totalPracticeTests,
+      practiceTestScores,
+      practiceTestQuestionCredits,
+      practiceTestQuestionCounts,
+      practiceTestPercents,
+      lastAchievedIds,
+    ]
+  );
+
+  const getMigrationPayload = useCallback(() => progressSnapshot, [progressSnapshot]);
+
+  const cloudFirestoreReady = useFirestoreUserProgressListener({
+    uid: firebaseUser?.uid ?? null,
+    authResolved,
+    getMigrationPayload,
+    applyProgress: applyProgressFromCloud,
+  });
+
+  useEffect(() => {
+    if (!firebaseUser || !cloudFirestoreReady) return;
+    const uid = firebaseUser.uid;
+    const t = window.setTimeout(() => {
+      saveUserProgress(db, uid, progressSnapshot).catch((e) => console.error('[Firestore] save failed', e));
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [firebaseUser, cloudFirestoreReady, progressSnapshot]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -2716,6 +2837,43 @@ export default function App() {
                   >
                     <X className="w-6 h-6 text-gray-400" />
                   </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">Account</div>
+                  {!authResolved ? (
+                    <p className="text-sm font-medium text-gray-400">Checking sign-in…</p>
+                  ) : firebaseUser ? (
+                    <div className="flex flex-col gap-3 p-4 bg-sky-50 rounded-2xl border-2 border-sky-100">
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-sky-600">Signed in</p>
+                          <p className="font-black text-blue-950 truncate text-sm mt-1">
+                            {firebaseUser.email ?? firebaseUser.displayName ?? 'Google user'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSignOut}
+                        disabled={authActionPending}
+                        className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-sky-200 text-sky-900 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-sky-50 transition-all disabled:opacity-50"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        {authActionPending ? 'Signing out…' : 'Sign out'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleGoogleSignIn}
+                      disabled={authActionPending}
+                      className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
+                    >
+                      <LogIn className="w-4 h-4 shrink-0" />
+                      {authActionPending ? 'Opening Google…' : 'Continue with Google'}
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-4">
