@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import {
@@ -26,7 +27,7 @@ import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type 
 import { auth, db } from './firebase';
 import { buildProgressFromAppState, saveUserProgress, stableStringifyProgress } from './userProgressFirestore';
 import { useFirestoreUserProgressListener } from './useFirestoreUserProgressListener';
-import type { UserProgressV1 } from './userProgressSchema';
+import { emptyUserProgress, type UserProgressV1 } from './userProgressSchema';
 
 import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls, buildPracticeTestChartSeries } from './utils';
@@ -134,6 +135,7 @@ export default function App() {
   const [recordDayModalCount, setRecordDayModalCount] = useState(0);
   const [showLevelMap, setShowLevelMap] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showGoogleLoginWarningModal, setShowGoogleLoginWarningModal] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
   const [isTestMode, setIsTestMode] = useState(() => {
@@ -294,17 +296,6 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  const handleGoogleSignIn = useCallback(async () => {
-    setAuthActionPending(true);
-    try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch (err) {
-      console.error('Google sign-in failed', err);
-    } finally {
-      setAuthActionPending(false);
-    }
-  }, []);
-
   const handleSignOut = useCallback(async () => {
     setAuthActionPending(true);
     try {
@@ -377,6 +368,47 @@ export default function App() {
     ]
   );
 
+  const hasMeaningfulLocalProgress = useMemo(
+    () => stableStringifyProgress(progressSnapshot) !== stableStringifyProgress(emptyUserProgress()),
+    [progressSnapshot]
+  );
+
+  const overwriteCloudWithLocalFirstRef = useRef(false);
+
+  const runGoogleSignInPopup = useCallback(async () => {
+    setAuthActionPending(true);
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (err) {
+      console.error('Google sign-in failed', err);
+    } finally {
+      setAuthActionPending(false);
+    }
+  }, []);
+
+  const handleContinueWithGoogleClick = useCallback(() => {
+    if (!hasMeaningfulLocalProgress) {
+      void runGoogleSignInPopup();
+      return;
+    }
+    setShowGoogleLoginWarningModal(true);
+  }, [hasMeaningfulLocalProgress, runGoogleSignInPopup]);
+
+  const handleGoogleLoginSaveLocalThenSignIn = useCallback(() => {
+    overwriteCloudWithLocalFirstRef.current = true;
+    setShowGoogleLoginWarningModal(false);
+    void runGoogleSignInPopup();
+  }, [runGoogleSignInPopup]);
+
+  const handleGoogleLoginClearLocalThenSignIn = useCallback(() => {
+    overwriteCloudWithLocalFirstRef.current = false;
+    setShowGoogleLoginWarningModal(false);
+    flushSync(() => {
+      applyProgressFromCloud(emptyUserProgress());
+    });
+    void runGoogleSignInPopup();
+  }, [applyProgressFromCloud, runGoogleSignInPopup]);
+
   const getMigrationPayload = useCallback(() => progressSnapshot, [progressSnapshot]);
 
   const progressSnapshotRef = useRef(progressSnapshot);
@@ -390,6 +422,12 @@ export default function App() {
     lastSeenServerTimeMsRef.current = 0;
   }, [firebaseUser?.uid]);
 
+  useEffect(() => {
+    if (!firebaseUser) {
+      overwriteCloudWithLocalFirstRef.current = false;
+    }
+  }, [firebaseUser]);
+
   const cloudFirestoreReady = useFirestoreUserProgressListener({
     uid: firebaseUser?.uid ?? null,
     authResolved,
@@ -398,6 +436,7 @@ export default function App() {
     getLocalProgressJson: () => stableStringifyProgress(progressSnapshotRef.current),
     lastPushedJsonRef: lastPushedProgressJsonRef,
     lastSeenServerTimeMsRef: lastSeenServerTimeMsRef,
+    overwriteCloudWithLocalFirstRef,
   });
 
   useEffect(() => {
@@ -671,6 +710,7 @@ export default function App() {
     const isAnyModalOpen =
       showGoalModal ||
       showRecordDayModal ||
+      showGoogleLoginWarningModal ||
       showSettingsModal ||
       showImageViewer ||
       showPracticeTestEntryModal ||
@@ -687,12 +727,25 @@ export default function App() {
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [showGoalModal, showRecordDayModal, showSettingsModal, showImageViewer, showPracticeTestEntryModal, showLogSetModal, showLogWinCelebrateModal, showGreatProgressModal, practiceScoreSpotlight, selectedHistoryDate]);
+  }, [
+    showGoalModal,
+    showRecordDayModal,
+    showGoogleLoginWarningModal,
+    showSettingsModal,
+    showImageViewer,
+    showPracticeTestEntryModal,
+    showLogSetModal,
+    showLogWinCelebrateModal,
+    showGreatProgressModal,
+    practiceScoreSpotlight,
+    selectedHistoryDate,
+  ]);
 
   useEffect(() => {
     const isAnyModalOpen =
       showGoalModal ||
       showRecordDayModal ||
+      showGoogleLoginWarningModal ||
       showSettingsModal ||
       showImageViewer ||
       showPracticeTestEntryModal ||
@@ -714,6 +767,7 @@ export default function App() {
   }, [
     showGoalModal,
     showRecordDayModal,
+    showGoogleLoginWarningModal,
     showSettingsModal,
     showImageViewer,
     showPracticeTestEntryModal,
@@ -2832,6 +2886,79 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* Google sign-in: local vs cloud conflict */}
+        {showGoogleLoginWarningModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.94, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.94, y: 24 }}
+              className={`bg-white rounded-[2rem] sm:rounded-[3rem] ${modalPanelSizeClass} border-8 border-amber-400 shadow-[0_0_50px_rgba(0,0,0,0.35)] relative`}
+              data-modal-scroll="true"
+            >
+              <div className="p-6 sm:p-8 space-y-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-blue-900 text-2xl sm:text-3xl font-black uppercase leading-tight">
+                      Sign in with Google
+                    </h2>
+                    <p className="text-amber-800 font-black text-[10px] uppercase tracking-widest mt-2">
+                      Local progress on this device
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowGoogleLoginWarningModal(false)}
+                    className="p-2 hover:bg-gray-100 rounded-full transition-colors shrink-0"
+                    aria-label="Close"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <p className="text-gray-700 text-sm sm:text-base font-medium leading-relaxed">
+                  Your progress on this device is stored only in your browser. After you sign in with Google, this app
+                  loads your saved progress from your Google account instead. Without choosing how to merge,{' '}
+                  <span className="font-black text-blue-950">you can lose this device&apos;s progress</span> when it is
+                  replaced by what is already in Google (if any).
+                </p>
+
+                <div className="flex flex-col gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleGoogleLoginSaveLocalThenSignIn}
+                    disabled={authActionPending}
+                    className="question-count-clay-btn flex flex-col items-stretch gap-1 w-full bg-sky-600 border-2 border-sky-800 text-white py-3.5 px-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-sky-700 transition-all disabled:opacity-50 text-left"
+                  >
+                    <span>A — Save this device&apos;s progress to Google</span>
+                    <span className="text-sky-100 font-medium normal-case text-xs tracking-normal">
+                      Uploads what you have here now. If you already have progress in Google, this replaces it with this
+                      device&apos;s copy.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGoogleLoginClearLocalThenSignIn}
+                    disabled={authActionPending}
+                    className="question-count-clay-btn flex flex-col items-stretch gap-1 w-full bg-white border-2 border-gray-300 text-gray-900 py-3.5 px-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50 text-left"
+                  >
+                    <span>B — Discard this device&apos;s progress and use Google only</span>
+                    <span className="text-gray-600 font-medium normal-case text-xs tracking-normal">
+                      Clears local progress here, then signs you in and loads whatever is already saved to your Google
+                      account—without overwriting it from this browser.
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {/* Settings Modal */}
         {showSettingsModal && (
           <motion.div 
@@ -2885,7 +3012,7 @@ export default function App() {
                   ) : (
                     <button
                       type="button"
-                      onClick={handleGoogleSignIn}
+                      onClick={handleContinueWithGoogleClick}
                       disabled={authActionPending}
                       className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
                     >

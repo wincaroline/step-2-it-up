@@ -23,6 +23,8 @@ export function useFirestoreUserProgressListener(options: {
   getLocalProgressJson: () => string;
   lastPushedJsonRef: MutableRefObject<string>;
   lastSeenServerTimeMsRef: MutableRefObject<number>;
+  /** When true on first snapshot, writes current local payload to Firestore even if a document already exists (overwrites cloud). */
+  overwriteCloudWithLocalFirstRef?: MutableRefObject<boolean>;
 }): boolean {
   const [ready, setReady] = useState(false);
 
@@ -63,6 +65,9 @@ export function useFirestoreUserProgressListener(options: {
         };
 
         if (!snap.exists()) {
+          if (options.overwriteCloudWithLocalFirstRef) {
+            options.overwriteCloudWithLocalFirstRef.current = false;
+          }
           const initial = getMigrationPayloadRef.current();
           saveUserProgress(db, uid, initial).catch((e) => console.error('[Firestore] initial upload failed', e));
           applyProgressRef.current(initial);
@@ -78,6 +83,24 @@ export function useFirestoreUserProgressListener(options: {
         const parsed = parseUserProgressDoc(data);
 
         if (!hydrationDone) {
+          const overwriteFirst = options.overwriteCloudWithLocalFirstRef?.current ?? false;
+          if (overwriteFirst && options.overwriteCloudWithLocalFirstRef) {
+            options.overwriteCloudWithLocalFirstRef.current = false;
+          }
+
+          if (overwriteFirst) {
+            const localPayload = getMigrationPayloadRef.current();
+            saveUserProgress(db, uid, localPayload).catch((e) =>
+              console.error('[Firestore] overwrite-with-local upload failed', e)
+            );
+            applyProgressRef.current(localPayload);
+            pushedRef.current = stableStringifyProgress(localPayload);
+            seenRef.current = Math.max(seenRef.current, serverMs);
+            hydrationDone = true;
+            setReady(true);
+            return;
+          }
+
           if (parsed) {
             applyProgressRef.current(parsed);
             commitSyncedRemote(parsed, data);
