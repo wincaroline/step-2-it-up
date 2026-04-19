@@ -4,7 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+  const fileEnv = loadEnv(mode, '.', '');
+  /** Merge so GitHub Actions / CI can inject secrets via `process.env` without a checked-in `.env`. */
+  const env = {...fileEnv, ...process.env} as NodeJS.ProcessEnv & typeof fileEnv;
   return {
     base: mode === 'production' ? '/step-2-it-up/' : '/',
     plugins: [react(), tailwindcss()],

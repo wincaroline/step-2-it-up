@@ -35,7 +35,55 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fails fast if Actions secrets are missing / empty (avoids deploying a bundle with invalid-api-key).
+      - name: Verify Firebase secrets for build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: |
+          set -euo pipefail
+          strip_outer_quotes() {
+            local v="$1"
+            v="${v#\"}"
+            v="${v%\"}"
+            v="${v#\'}"
+            v="${v%\'}"
+            printf '%s' "$v" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+          }
+          missing=""
+          for name in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID; do
+            eval "raw=\${$name-}"
+            val="$(strip_outer_quotes "$raw")"
+            if [ -z "$val" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::These repository Actions secrets are missing or empty:$missing — Settings → Secrets and variables → Actions (names must match .env.example)."
+            exit 1
+          fi
+          KEY="$(strip_outer_quotes "$VITE_FIREBASE_API_KEY")"
+          case "$KEY" in
+            AIza*) ;;
+            *)
+              echo "::error::VITE_FIREBASE_API_KEY must be the Firebase Web apiKey (starts with AIza). Re-copy from Firebase Console → Project settings → Your apps. No quotes in the secret value."
+              exit 1
+              ;;
+          esac
+
       - name: Build
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build
 
       - name: Upload artifact
