@@ -53,6 +53,8 @@ import {
   preloadGraphicUrls,
   buildPracticeTestChartSeries,
   formatExamDateLabel,
+  streakFlameVariantFromCount,
+  streakStatNumberColorFromVariant,
 } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
@@ -68,32 +70,32 @@ type LogWinTier = 60 | 70 | 80;
 
 type GreatProgressPendingState = {
   id: number;
-  bonusQuestions: number;
+  bonusPoints: number;
   deltaPoints: number;
   previousScore: number;
   newScore: number;
   highlightDateKey: string;
 };
 
-/** Matches `submitPracticeTestEntry`: q + round(q × % / 100). */
-function computePracticeTestQuestionsCredit(q: number, percent: number | undefined): number {
-  const accuracyBonus = percent === undefined ? 0 : Math.round((q * percent) / 100);
-  return q + accuracyBonus;
-}
-
-/** Practice-test question credits derived from admin modal drafts (invalid partial input → 0 credit). */
-function computePracticeTestCreditFromRawInputs(questionsRaw: string, percentRaw: string): number {
+function parsePracticeTestBaseQuestionsFromRaw(questionsRaw: string): number {
   const trimmedQ = questionsRaw.trim();
   if (trimmedQ === '') return 0;
   const q = parseInt(trimmedQ.replace(/,/g, ''), 10);
   if (Number.isNaN(q) || q < 0) return 0;
+  return q;
+}
+
+function parseOptionalPercentRaw(percentRaw: string): number | undefined {
   const trimmedP = percentRaw.trim();
-  let p: number | undefined;
-  if (trimmedP !== '') {
-    const n = parseFloat(trimmedP.replace(/,/g, ''));
-    if (!Number.isNaN(n) && n >= 0 && n <= 100) p = n;
-  }
-  return computePracticeTestQuestionsCredit(q, p);
+  if (trimmedP === '') return undefined;
+  const n = parseFloat(trimmedP.replace(/,/g, ''));
+  if (Number.isNaN(n) || n < 0 || n > 100) return undefined;
+  return n;
+}
+
+/** Accuracy bonus points from % correct: round(q × % / 100). */
+function accuracyBonusPointsFor(q: number, percent: number | undefined): number {
+  return percent === undefined ? 0 : Math.round((q * percent) / 100);
 }
 
 /** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
@@ -142,6 +144,18 @@ function hasLocalPriorUsage(): boolean {
 function clampDailyGoal(n: number): number {
   if (!Number.isFinite(n)) return DAILY_GOAL;
   return Math.min(9999, Math.max(1, Math.round(n)));
+}
+
+function mergeBonusPointsHistoryDay(
+  prev: Record<string, number>,
+  dateKey: string,
+  delta: number
+): Record<string, number> {
+  const next = { ...prev };
+  const nv = Math.max(0, Number(next[dateKey] ?? 0) + delta);
+  if (nv === 0) delete next[dateKey];
+  else next[dateKey] = nv;
+  return next;
 }
 
 /** Staggered fade-up for main page sections on initial load */
@@ -210,6 +224,30 @@ export default function App() {
     }
     const saved = typeof window !== 'undefined' ? localStorage.getItem('totalQuestions') : null;
     return saved ? parseInt(saved) : 0;
+  });
+
+  const [bonusPoints, setBonusPoints] = useState(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('bonusPoints') : null;
+    if (saved == null) return 0;
+    const n = parseInt(saved, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  });
+
+  const [bonusPointsHistory, setBonusPointsHistory] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem('bonusPointsHistory');
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object') return {};
+      return Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).filter(
+          ([k, v]) => /^\d{4}-\d{2}-\d{2}$/.test(k) && typeof v === 'number' && Number.isFinite(v) && v >= 0
+        )
+      ) as Record<string, number>;
+    } catch {
+      return {};
+    }
   });
 
   const [history, setHistory] = useState<Record<string, number>>(() => {
@@ -336,7 +374,7 @@ export default function App() {
     tier: LogWinTier;
     questionsCovered: number;
     percentCorrect: number;
-    bonusQuestions: number;
+    bonusPointsEarned: number;
     newDailyTotal: number;
   } | null>(null);
   const [practiceTestEntryIntent, setPracticeTestEntryIntent] = useState<'completed' | 'adminPlus' | null>(null);
@@ -347,6 +385,8 @@ export default function App() {
   const [showGreatProgressModal, setShowGreatProgressModal] = useState(false);
   const [greatProgressSnapshot, setGreatProgressSnapshot] = useState<Omit<GreatProgressPendingState, 'id'> | null>(null);
   const greatProgressBonusAppliedIds = useRef<Set<number>>(new Set());
+  const logSetFirstInputRef = useRef<HTMLInputElement>(null);
+  const practiceTestEntryFirstInputRef = useRef<HTMLInputElement>(null);
   /** Tracks calendar day for `todayKey` so we can reset daily counts at local midnight (or when simulated time jumps). */
   const prevCalendarDayKeyRef = useRef<string | null>(null);
   const [practiceScoreSpotlight, setPracticeScoreSpotlight] = useState<{
@@ -428,6 +468,18 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    if (!showLogSetModal) return;
+    const t = window.setTimeout(() => logSetFirstInputRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [showLogSetModal]);
+
+  useEffect(() => {
+    if (!showPracticeTestEntryModal) return;
+    const t = window.setTimeout(() => practiceTestEntryFirstInputRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [showPracticeTestEntryModal]);
+
   const handleSignOut = useCallback(async () => {
     setAuthActionPending(true);
     try {
@@ -454,6 +506,8 @@ export default function App() {
     historyRef.current = p.history;
     setDailyQuestions(p.dailyQuestions);
     setTotalQuestions(p.totalQuestions);
+    setBonusPoints(Math.max(0, p.bonusPoints ?? 0));
+    setBonusPointsHistory(p.bonusPointsHistory ?? {});
     setHistory(p.history);
     setLastLevel(p.lastLevel);
     setSelectedVariants(p.selectedVariants);
@@ -482,6 +536,8 @@ export default function App() {
       buildProgressFromAppState({
         dailyQuestions,
         totalQuestions,
+        bonusPoints,
+        bonusPointsHistory,
         history,
         lastLevel,
         selectedVariants,
@@ -500,6 +556,8 @@ export default function App() {
     [
       dailyQuestions,
       totalQuestions,
+      bonusPoints,
+      bonusPointsHistory,
       history,
       lastLevel,
       selectedVariants,
@@ -619,6 +677,7 @@ export default function App() {
     if (firebaseUser && cloudFirestoreReady) {
       const hasProgress =
         totalQuestions > 0 ||
+        bonusPoints > 0 ||
         Object.values(history).some((c) => Number(c) > 0) ||
         lastLevel > 0 ||
         totalPracticeTests > 0;
@@ -637,6 +696,7 @@ export default function App() {
     firebaseUser,
     cloudFirestoreReady,
     totalQuestions,
+    bonusPoints,
     history,
     lastLevel,
     totalPracticeTests,
@@ -691,6 +751,7 @@ export default function App() {
 
   const effectiveTime = simulatedTime || currentTime;
   const todayKey = dateKeyFromDate(effectiveTime);
+  const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
 
   useEffect(() => {
@@ -729,39 +790,48 @@ export default function App() {
     );
   }, [practiceTestChartSeries]);
 
-  const checkMilestones = (
-    newDaily: number,
-    newTotal: number,
-    newHistory: Record<string, number> = history,
-    practiceTestsForAchievementCheck?: number
-  ) => {
-    const practiceTestsUsed = practiceTestsForAchievementCheck ?? totalPracticeTests;
-    // 1. Check for level up
+  const evaluateLevelProgress = useCallback((xpTotal: number) => {
     let newLevelIndex = 0;
     for (let i = LEVELS.length - 1; i >= 0; i--) {
-      if (newTotal >= LEVELS[i].min) {
+      if (xpTotal >= LEVELS[i].min) {
         newLevelIndex = i;
         break;
       }
     }
 
-    if (newLevelIndex > lastLevel) {
+    setLastLevel((prevLast) => {
+      if (newLevelIndex <= prevLast) return prevLast;
       const level = LEVELS[newLevelIndex];
-      const levelUpMsg = isWarningMode 
-        ? `You've grown into a ${level.name}, but you're still just prey.` 
+      const levelUpMsg = isWarningMode
+        ? `You've grown into a ${level.name}, but you're still just prey.`
         : SILLY_STATEMENTS[level.name]?.levelUp || `You've reached level ${level.name}!`;
       setGoalMessage(levelUpMsg);
-      
-      setLastLevel(newLevelIndex);
-      localStorage.setItem('lastLevel', newLevelIndex.toString());
-    }
 
-    // 2. Check for achievements (merge today's count so streak math sees the value from this click)
+      localStorage.setItem('lastLevel', newLevelIndex.toString());
+      return newLevelIndex;
+    });
+  }, [isWarningMode]);
+
+  const checkMilestones = (
+    newDaily: number,
+    newQuestionTotal: number,
+    newHistory: Record<string, number> = history,
+    practiceTestsForAchievementCheck?: number,
+    xpTotalForLevels?: number,
+    bonusPointsForAchievements?: number
+  ) => {
+    const practiceTestsUsed = practiceTestsForAchievementCheck ?? totalPracticeTests;
+    const effectiveBonus = bonusPointsForAchievements ?? bonusPoints;
+    const xpTotal = xpTotalForLevels ?? newQuestionTotal + effectiveBonus;
+
+    evaluateLevelProgress(xpTotal);
+
+    // Milestone badges use raw QP; main level-tier badges match the XP ladder (`questions + bonus`).
     const todayStr = dateKeyFromDate(effectiveTime);
     const historyForAchievements = { ...newHistory, [todayStr]: newDaily };
     const newlyAchieved = ACHIEVEMENTS.filter(
       (a) =>
-        getAchievementStatus(a, newTotal, historyForAchievements, effectiveTime, practiceTestsUsed) &&
+        getAchievementStatus(a, newQuestionTotal, historyForAchievements, effectiveTime, practiceTestsUsed, effectiveBonus) &&
         !lastAchievedIds.includes(a.id)
     );
     const toCelebrate = achievementIdsForCelebration(newlyAchieved);
@@ -813,14 +883,45 @@ export default function App() {
   }, [effectiveTime]);
 
   const isSleepMode = useMemo(() => {
-    if (isTestMode && adminSleepModeForceOn) return true;
+    if (isTestMode) return adminSleepModeForceOn;
     return naturalSleepMode;
   }, [isTestMode, adminSleepModeForceOn, naturalSleepMode]);
 
   useEffect(() => {
+    if (isTestMode) return;
     const hours = effectiveTime.getHours();
     setIsWarningMode(computeAutoWarningMode(hours, dailyQuestions, dailyGoalQuestions));
-  }, [dailyQuestions, dailyGoalQuestions, effectiveTime]);
+  }, [dailyQuestions, dailyGoalQuestions, effectiveTime, isTestMode]);
+
+  /** Sync `goalMessage` with Warning Mode (Anglerfish): harsh on enter, SILLY motivational on exit — same pool as +10 taps in normal mode. */
+  const prevWarningAnglerfishActiveRef = useRef(false);
+  useEffect(() => {
+    const active = isWarningMode && !isSleepMode;
+    if (active && !prevWarningAnglerfishActiveRef.current) {
+      setGoalMessage(HARD_ASS_STATEMENTS[Math.floor(Math.random() * HARD_ASS_STATEMENTS.length)]);
+    } else if (!active && prevWarningAnglerfishActiveRef.current) {
+      const xpTotal = Math.max(0, totalQuestions + bonusPoints);
+      let levelIdx = 0;
+      for (let i = LEVELS.length - 1; i >= 0; i--) {
+        if (xpTotal >= LEVELS[i].min) {
+          levelIdx = i;
+          break;
+        }
+      }
+      const levelName = LEVELS[levelIdx].name;
+      const levelStats = SILLY_STATEMENTS[levelName];
+      const category = dailyQuestions >= MILESTONE_1 ? 'high' : 'moderate';
+      const bucket = levelStats[category];
+      setGoalMessage(bucket[Math.floor(Math.random() * bucket.length)]);
+    }
+    prevWarningAnglerfishActiveRef.current = active;
+  }, [
+    isWarningMode,
+    isSleepMode,
+    totalQuestions,
+    bonusPoints,
+    dailyQuestions,
+  ]);
 
   useEffect(() => {
     localStorage.setItem('isWarningMode', isWarningMode.toString());
@@ -856,26 +957,34 @@ export default function App() {
   }, [showSettingsModal]);
 
   // --- Derived State ---
+  /** Total XP = question points (QP) + bonus points (BP). */
+  const totalExperiencePoints = useMemo(
+    () => Math.max(0, totalQuestions + bonusPoints),
+    [totalQuestions, bonusPoints]
+  );
+
   const currentLevelIndex = useMemo(() => {
     let index = 0;
     for (let i = LEVELS.length - 1; i >= 0; i--) {
-      if (totalQuestions >= LEVELS[i].min) {
+      if (totalExperiencePoints >= LEVELS[i].min) {
         index = i;
         break;
       }
     }
     return index;
-  }, [totalQuestions]);
+  }, [totalExperiencePoints]);
 
   const currentLevel = LEVELS[currentLevelIndex];
   const nextLevel = LEVELS[currentLevelIndex + 1];
-  const questionsToNext = nextLevel ? nextLevel.min - totalQuestions : 0;
+  const xpToNext = nextLevel ? Math.max(0, nextLevel.min - totalExperiencePoints) : 0;
 
   const currentLevelVariants = LEVEL_VARIANTS[currentLevel.graphic] || [currentLevel.graphic];
   const unlockedVariants = currentLevelVariants.filter(variant => {
     if (variant === currentLevel.graphic) return true;
     const achievement = ACHIEVEMENTS.find(a => a.image === variant);
-    return achievement ? getAchievementStatus(achievement, totalQuestions, history, effectiveTime, totalPracticeTests) : false;
+    return achievement
+      ? getAchievementStatus(achievement, totalQuestions, history, effectiveTime, totalPracticeTests, bonusPoints, lastAchievedIds)
+      : false;
   });
 
   const defaultVariant = unlockedVariants[unlockedVariants.length - 1];
@@ -888,6 +997,215 @@ export default function App() {
     const [y, m, d] = examDateKey.split('-').map(Number);
     return new Date(y, m - 1, d);
   }, [examDateKey]);
+
+  /** Calendar months from fixed study start through exam day (expands when exam date moves). */
+  const historyCalendarMonths = useMemo(() => {
+    const HISTORY_GRID_START = new Date(2026, 3, 5);
+    const rangeStart = new Date(
+      HISTORY_GRID_START.getFullYear(),
+      HISTORY_GRID_START.getMonth(),
+      HISTORY_GRID_START.getDate()
+    );
+    const rangeEnd = new Date(
+      examCalendarDate.getFullYear(),
+      examCalendarDate.getMonth(),
+      examCalendarDate.getDate()
+    );
+    const end = rangeEnd < rangeStart ? rangeStart : rangeEnd;
+
+    const todayStr = dateKeyFromDate(effectiveTime);
+    const historyTierMid = Math.max(1, Math.round(dailyGoalQuestions * (MILESTONE_1 / DAILY_GOAL)));
+
+    let cumulativeTotal = 0;
+    Object.keys(history).forEach((dateStr) => {
+      const [yy, mm, dd] = dateStr.split('-').map(Number);
+      const dt = new Date(yy, mm - 1, dd);
+      if (dt < rangeStart) cumulativeTotal += Number(history[dateStr]) || 0;
+    });
+
+    const levelUpsByDay = new Map<string, Level[]>();
+    for (let cur = new Date(rangeStart); cur <= end; cur.setDate(cur.getDate() + 1)) {
+      const dk = dateKeyFromDate(cur);
+      const count = Number(history[dk]) || 0;
+      cumulativeTotal += count;
+      LEVELS.forEach((level) => {
+        const thresholdQ = Math.max(0, level.min - bonusPoints);
+        if (cumulativeTotal >= thresholdQ && cumulativeTotal - count < thresholdQ) {
+          const arr = levelUpsByDay.get(dk) ?? [];
+          arr.push(level);
+          levelUpsByDay.set(dk, arr);
+        }
+      });
+    }
+
+    const months: React.ReactNode[] = [];
+    let monthWalker = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+    const lastMonthFirst = new Date(end.getFullYear(), end.getMonth(), 1);
+    const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+    while (monthWalker <= lastMonthFirst) {
+      const y = monthWalker.getFullYear();
+      const mo = monthWalker.getMonth();
+      const daysInMonth = new Date(y, mo + 1, 0).getDate();
+      const firstWeekday = new Date(y, mo, 1).getDay();
+
+      const levelsReachedThisMonth: Level[] = [];
+      const seenLevel = new Set<string>();
+      for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+        const date = new Date(y, mo, dayNum);
+        if (date < rangeStart || date > end) continue;
+        const dk = dateKeyFromDate(date);
+        const ups = levelUpsByDay.get(dk);
+        if (ups) {
+          for (const l of ups) {
+            if (!seenLevel.has(l.name)) {
+              seenLevel.add(l.name);
+              levelsReachedThisMonth.push(l);
+            }
+          }
+        }
+      }
+
+      const cells: React.ReactNode[] = [];
+
+      for (let i = 0; i < firstWeekday; i++) {
+        cells.push(<div key={`lead-${y}-${mo}-${i}`} className="aspect-square min-h-0" aria-hidden />);
+      }
+
+      for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+        const date = new Date(y, mo, dayNum);
+        const dateKey = dateKeyFromDate(date);
+        const outOfRange = date < rangeStart || date > end;
+
+        if (outOfRange) {
+          cells.push(
+            <div key={dateKey} className="aspect-square rounded-lg bg-white/[0.03] min-h-0" aria-hidden />
+          );
+          continue;
+        }
+
+        const count = Number(history[dateKey]) || 0;
+        const isToday = dateKey === todayStr;
+        const isFuture = date > effectiveTime;
+        const isExamDay = dateKey === examDateKey;
+        const isTrophyOnLightBackground = count > 45;
+
+        const dynamicColor =
+          !isSleepMode && !isWarningMode && !isExamDay && !(isFuture && !isTestMode)
+            ? getHistoryColor(count, dailyGoalQuestions)
+            : null;
+
+        cells.push(
+          <div
+            key={dateKey}
+            onClick={() =>
+              setSelectedHistoryDate({
+                date: date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+                count,
+                dateKey,
+                isExamDay,
+              })
+            }
+            className={`question-count-clay-btn aspect-square rounded-lg flex items-center justify-center text-xs font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative min-h-0 ${
+              isExamDay
+                ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]'
+                : isFuture && !isTestMode
+                  ? 'bg-white/5 text-white/20'
+                  : dynamicColor
+                    ? ''
+                    : isToday
+                      ? 'bg-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.3)]'
+                      : count >= dailyGoalQuestions
+                        ? 'bg-emerald-500 text-white'
+                        : count >= historyTierMid
+                          ? 'bg-amber-600 text-white'
+                          : count > 0
+                            ? 'bg-red-800 text-white'
+                            : 'bg-white/10 text-white/40'
+            }`}
+            style={
+              dynamicColor
+                ? {
+                    backgroundColor: dynamicColor,
+                    color: count > 45 ? 'black' : 'white',
+                  }
+                : {}
+            }
+          >
+            {!isExamDay && (
+              <span className="absolute top-0.5 left-1 text-[9px] font-black leading-none text-white/40">
+                {dayNum}
+              </span>
+            )}
+            {isExamDay ? (
+              'EXAM'
+            ) : (
+              <div className="flex flex-col items-center justify-center leading-none">
+                <span>{count > 0 ? count : ''}</span>
+                {practiceTestCompletionDates[dateKey] && (
+                  <Trophy className={`w-3 h-3 mt-0.5 ${isTrophyOnLightBackground ? 'text-black' : 'text-yellow-300'}`} />
+                )}
+              </div>
+            )}
+            {isToday && (
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-ping" />
+            )}
+          </div>
+        );
+      }
+
+      const totalCells = firstWeekday + daysInMonth;
+      const trailing = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+      for (let i = 0; i < trailing; i++) {
+        cells.push(<div key={`trail-${y}-${mo}-${i}`} className="aspect-square min-h-0" aria-hidden />);
+      }
+
+      months.push(
+        <div key={`hist-cal-${y}-${mo}`} className="space-y-2">
+          <div className="flex justify-between items-center px-1 gap-2">
+            <span className="text-[11px] font-black uppercase tracking-widest text-white/55">
+              {new Date(y, mo, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </span>
+            {levelsReachedThisMonth.length > 0 && (
+              <div className="flex gap-1 shrink-0">
+                {levelsReachedThisMonth.map((l, idx) => (
+                  <span key={`${l.name}-${idx}`} title={`Reached ${l.name}`} className="text-xs">
+                    {l.emoji}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-7 gap-2">
+            {weekDays.map((wd, wi) => (
+              <div
+                key={`wd-${y}-${mo}-${wi}`}
+                className="text-center text-[9px] font-black uppercase tracking-wider text-white/35 py-0.5"
+              >
+                {wd}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-2">{cells}</div>
+        </div>
+      );
+
+      monthWalker = new Date(y, mo + 1, 1);
+    }
+
+    return months;
+  }, [
+    bonusPoints,
+    dailyGoalQuestions,
+    effectiveTime,
+    examCalendarDate,
+    examDateKey,
+    history,
+    isSleepMode,
+    isTestMode,
+    isWarningMode,
+    practiceTestCompletionDates,
+  ]);
 
   const daysUntilExam = Math.ceil((examCalendarDate.getTime() - effectiveTime.getTime()) / (1000 * 60 * 60 * 24));
   const modalPanelSizeClass = 'w-[92vw] sm:w-[86vw] lg:w-[74vw] max-w-[44rem] max-h-[90dvh]';
@@ -918,6 +1236,20 @@ export default function App() {
       return newHistory;
     });
   }, [totalQuestions, currentLevelIndex, lastLevel, isMuted, lastAchievedIds]);
+
+  useEffect(() => {
+    localStorage.setItem('bonusPoints', bonusPoints.toString());
+  }, [bonusPoints]);
+
+  useEffect(() => {
+    localStorage.setItem('bonusPointsHistory', JSON.stringify(bonusPointsHistory));
+  }, [bonusPointsHistory]);
+
+  const adjustBonusPointsForDay = useCallback((dateKey: string, delta: number) => {
+    if (delta === 0) return;
+    setBonusPoints((prev) => Math.max(0, prev + delta));
+    setBonusPointsHistory((prev) => mergeBonusPointsHistoryDay(prev, dateKey, delta));
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('isTestMode', isTestMode.toString());
@@ -991,8 +1323,8 @@ export default function App() {
     showLogSetModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
-    practiceScoreSpotlight,
-    selectedHistoryDate,
+    practiceScoreSpotlight?.dateKey,
+    selectedHistoryDate?.dateKey,
   ]);
 
   useEffect(() => {
@@ -1027,13 +1359,13 @@ export default function App() {
     showLogSetModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
-    practiceScoreSpotlight,
-    selectedHistoryDate,
-    selectedAchievement,
+    practiceScoreSpotlight?.dateKey,
+    selectedHistoryDate?.dateKey,
+    selectedAchievement?.id,
   ]);
 
   // --- Handlers ---
-  const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number) => {
+  const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number, bonusPointsForAchievements?: number) => {
     const newDaily = Math.max(0, dailyQuestions + amount);
     const diff = newDaily - dailyQuestions;
     const todayStrForRecord = dateKeyFromDate(effectiveTime);
@@ -1096,7 +1428,7 @@ export default function App() {
     setTotalQuestions(newTotal);
     
     // Check for milestones directly in the click handler to satisfy browser audio requirements
-    checkMilestones(newDaily, newTotal, history, practiceTestsForAchievementCheck);
+    checkMilestones(newDaily, newTotal, history, practiceTestsForAchievementCheck, undefined, bonusPointsForAchievements);
   };
 
   useEffect(() => {
@@ -1107,9 +1439,19 @@ export default function App() {
 
     const p = greatProgressPending;
     setGreatProgressPending(null);
-    addQuestions(p.bonusQuestions);
+    const delta = p.bonusPoints;
+    let xpAfter = 0;
+    flushSync(() => {
+      setBonusPoints((prev) => {
+        const next = prev + delta;
+        xpAfter = totalQuestions + next;
+        return next;
+      });
+      setBonusPointsHistory((prev) => mergeBonusPointsHistoryDay(prev, p.highlightDateKey, delta));
+    });
+    evaluateLevelProgress(xpAfter);
     setGreatProgressSnapshot({
-      bonusQuestions: p.bonusQuestions,
+      bonusPoints: p.bonusPoints,
       deltaPoints: p.deltaPoints,
       previousScore: p.previousScore,
       newScore: p.newScore,
@@ -1183,10 +1525,14 @@ export default function App() {
     const percent = percentInput === '' ? null : parseFloat(percentInput.replace(/,/g, ''));
     if (percent !== null && (!Number.isFinite(percent) || percent < 0 || percent > 100)) return;
 
-    const bonusQuestions = percent === null ? 0 : Math.round((n * percent) / 100);
-    const questionsToAdd = n + bonusQuestions;
-    const newDailyTotal = dailyQuestions + questionsToAdd;
-    addQuestions(questionsToAdd);
+    const bonusPts = percent === null ? 0 : Math.round((n * percent) / 100);
+    const newDailyTotal = dailyQuestions + n;
+    flushSync(() => {
+      if (bonusPts > 0) {
+        adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), bonusPts);
+      }
+    });
+    addQuestions(n, undefined, bonusPoints + bonusPts);
     const highestTier: LogWinTier | null =
       percent === null ? null : percent >= 80 ? 80 : percent >= 70 ? 70 : percent >= 60 ? 60 : null;
 
@@ -1195,7 +1541,7 @@ export default function App() {
         tier: highestTier,
         questionsCovered: n,
         percentCorrect: percent!,
-        bonusQuestions,
+        bonusPointsEarned: bonusPts,
         newDailyTotal,
       });
       setPendingLogSetTier(highestTier);
@@ -1221,6 +1567,8 @@ export default function App() {
   const clearAllData = () => {
     setDailyQuestions(0);
     setTotalQuestions(0);
+    setBonusPoints(0);
+    setBonusPointsHistory({});
     setLastLevel(0);
     setPracticeTestCompletionDates({});
     setPracticeTestScores({});
@@ -1359,7 +1707,7 @@ export default function App() {
     const newlyAchieved = ACHIEVEMENTS.filter(
       (a) =>
         PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS[a.id] !== undefined &&
-        getAchievementStatus(a, totalQuestions, history, effectiveTime, nextPracticeTests) &&
+        getAchievementStatus(a, totalQuestions, history, effectiveTime, nextPracticeTests, bonusPoints) &&
         !lastAchievedIds.includes(a.id)
     );
     if (newlyAchieved.length === 0) return;
@@ -1471,15 +1819,34 @@ export default function App() {
   const syncPracticeTestCreditFromHistoryModalInputs = (
     dateKey: string,
     questionsRaw: string,
-    percentRaw: string
+    percentRaw: string,
+    beforeEdit?: { previousCreditBase?: number; previousPercent?: number }
   ) => {
-    const newCredit = computePracticeTestCreditFromRawInputs(questionsRaw, percentRaw);
+    const newBaseQ = parsePracticeTestBaseQuestionsFromRaw(questionsRaw);
+    const newPercent = parseOptionalPercentRaw(percentRaw);
+    const newBonus = accuracyBonusPointsFor(newBaseQ, newPercent);
+
     setPracticeTestQuestionCredits((prevCredits) => {
-      const oldCredit = prevCredits[dateKey] ?? 0;
-      if (newCredit === oldCredit) return prevCredits;
+      const oldBaseQ = beforeEdit?.previousCreditBase ?? prevCredits[dateKey] ?? 0;
+      const prevPercent =
+        beforeEdit?.previousPercent !== undefined
+          ? beforeEdit.previousPercent
+          : typeof practiceTestPercents[dateKey] === 'number'
+            ? practiceTestPercents[dateKey]
+            : undefined;
+      const oldBonus = accuracyBonusPointsFor(oldBaseQ, prevPercent);
+
+      if (newBaseQ === oldBaseQ && newBonus === oldBonus) return prevCredits;
+
       const prevDayCount = historyRef.current[dateKey] ?? 0;
-      updateHistoryCount(dateKey, prevDayCount + (newCredit - oldCredit));
-      return { ...prevCredits, [dateKey]: newCredit };
+      updateHistoryCount(dateKey, prevDayCount + (newBaseQ - oldBaseQ));
+
+      const bonusDelta = newBonus - oldBonus;
+      if (bonusDelta !== 0) {
+        adjustBonusPointsForDay(dateKey, bonusDelta);
+      }
+
+      return { ...prevCredits, [dateKey]: newBaseQ };
     });
   };
 
@@ -1488,9 +1855,14 @@ export default function App() {
     if (checked === wasChecked) return;
 
     if (!checked) {
-      const creditToRemove = practiceTestQuestionCredits[dateKey] || 0;
-      if (creditToRemove > 0) {
-        updateHistoryCount(dateKey, (history[dateKey] || 0) - creditToRemove);
+      const baseCredit = practiceTestQuestionCredits[dateKey] || 0;
+      const pct = practiceTestPercents[dateKey];
+      const bonusToRemove = pct !== undefined ? Math.round((baseCredit * pct) / 100) : 0;
+      if (baseCredit > 0) {
+        updateHistoryCount(dateKey, (history[dateKey] || 0) - baseCredit);
+      }
+      if (bonusToRemove > 0) {
+        adjustBonusPointsForDay(dateKey, -bonusToRemove);
       }
     }
 
@@ -1565,13 +1937,16 @@ export default function App() {
     if (!practiceScoreSpotlight) return;
     if (!isTestMode && practiceScoreSpotlight.hadScore) return;
     const dk = practiceScoreSpotlight.dateKey;
+    const previousCreditBase = practiceTestQuestionCredits[dk];
+    const previousPercent = practiceTestPercents[dk];
     applyPracticeTestScoreForDate(dk, practiceScoreSpotlight.draft.trim());
     applyPracticeTestQuestionsForDate(dk, practiceScoreSpotlight.draftQuestions.trim());
     applyPracticeTestPercentForDate(dk, practiceScoreSpotlight.draftPercent.trim());
     syncPracticeTestCreditFromHistoryModalInputs(
       dk,
       practiceScoreSpotlight.draftQuestions,
-      practiceScoreSpotlight.draftPercent
+      practiceScoreSpotlight.draftPercent,
+      { previousCreditBase, previousPercent }
     );
     setPracticeScoreSpotlight(null);
   };
@@ -1616,11 +1991,11 @@ export default function App() {
       parsedScore > previousScore
     ) {
       const deltaPoints = parsedScore - previousScore;
-      const bonusQuestions = Math.round(deltaPoints * 20);
-      if (bonusQuestions > 0) {
+      const bp = Math.round(deltaPoints * 20);
+      if (bp > 0) {
         greatProgressQueued = {
           id: Date.now() + Math.random(),
-          bonusQuestions,
+          bonusPoints: bp,
           deltaPoints,
           previousScore,
           newScore: parsedScore,
@@ -1654,22 +2029,27 @@ export default function App() {
 
     const highestTier: LogWinTier | null =
       parsedPercent === undefined ? null : parsedPercent >= 80 ? 80 : parsedPercent >= 70 ? 70 : parsedPercent >= 60 ? 60 : null;
-    const accuracyBonusQuestions = parsedPercent === undefined ? 0 : Math.round((q * parsedPercent) / 100);
-    const questionsToAdd = q + accuracyBonusQuestions;
+    const accuracyBonusPoints =
+      parsedPercent === undefined ? 0 : Math.round((q * parsedPercent) / 100);
 
-    if (questionsToAdd > 0) {
-      addQuestions(questionsToAdd, practiceTestsAfterSubmit);
+    flushSync(() => {
+      if (accuracyBonusPoints > 0) {
+        adjustBonusPointsForDay(todayKey, accuracyBonusPoints);
+      }
+    });
+
+    if (q > 0) {
+      addQuestions(q, practiceTestsAfterSubmit);
     }
-    setPracticeTestQuestionCredits((prev) => ({ ...prev, [todayKey]: questionsToAdd }));
+    setPracticeTestQuestionCredits((prev) => ({ ...prev, [todayKey]: q }));
 
     if (highestTier && q > 0) {
-      const bonusQuestions = accuracyBonusQuestions;
-      const newDailyTotal = dailyQuestions + questionsToAdd;
+      const newDailyTotal = dailyQuestions + q;
       setLogWinCelebrate({
         tier: highestTier,
         questionsCovered: q,
         percentCorrect: parsedPercent!,
-        bonusQuestions,
+        bonusPointsEarned: accuracyBonusPoints,
         newDailyTotal,
       });
       setPendingLogSetTier(highestTier);
@@ -1716,9 +2096,14 @@ export default function App() {
 
   const removeTodayPracticeTestRecord = () => {
     if (!practiceTestCompletionDates[todayKey]) return;
-    const creditToRemove = practiceTestQuestionCredits[todayKey] || 0;
-    if (creditToRemove > 0) {
-      updateHistoryCount(todayKey, (history[todayKey] || 0) - creditToRemove);
+    const baseCredit = practiceTestQuestionCredits[todayKey] || 0;
+    const pct = practiceTestPercents[todayKey];
+    const bonusToRemove = pct !== undefined ? Math.round((baseCredit * pct) / 100) : 0;
+    if (baseCredit > 0) {
+      updateHistoryCount(todayKey, (history[todayKey] || 0) - baseCredit);
+    }
+    if (bonusToRemove > 0) {
+      adjustBonusPointsForDay(todayKey, -bonusToRemove);
     }
     setPracticeTestCompletionDates((prev) => {
       const next = { ...prev };
@@ -1761,56 +2146,56 @@ export default function App() {
   const getStreakFlameStyle = (streak: number): { className: string; style?: React.CSSProperties } => {
     if (streak <= 1) {
       return {
-        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-30',
+        className: 'w-6 h-6 shrink-0 text-orange-300 opacity-30',
         style: { transform: 'scale(0.9)' },
       };
     }
 
     if (streak === 2) {
       return {
-        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-70',
+        className: 'w-6 h-6 shrink-0 text-orange-300 opacity-70',
         style: { transform: 'scale(0.9)' },
       };
     }
 
     if (streak === 3) {
       return {
-        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-80',
+        className: 'w-6 h-6 shrink-0 text-orange-300 opacity-80',
         style: {
           transform: 'scale(1)',
-          filter: 'drop-shadow(0 0 8px rgba(249,115,22,1)) drop-shadow(0 0 8px rgba(249,115,22,0.8))',
+          filter: 'drop-shadow(0 0 8px rgba(253,186,116,1)) drop-shadow(0 0 8px rgba(253,186,116,0.85))',
         },
       };
     }
 
     if (streak === 4) {
       return {
-        className: 'w-6 h-6 shrink-0 text-yellow-300 opacity-90',
+        className: 'w-6 h-6 shrink-0 text-orange-300 opacity-90',
         style: {
           transform: 'scale(1.1)',
-          filter: 'drop-shadow(0 0 12px rgba(249,115,22,0.8)) drop-shadow(0 0 28px rgba(249,115,22,0.8))',
+          filter: 'drop-shadow(0 0 12px rgba(253,186,116,0.85)) drop-shadow(0 0 28px rgba(253,186,116,0.75))',
         },
       };
     }
 
     return {
-      className: 'w-6 h-6 shrink-0 text-white opacity-100',
+      className: 'w-6 h-6 shrink-0 text-orange-200 opacity-100',
       style: {
         transform: 'scale(1.3)',
-        filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.7)) drop-shadow(0 0 8px rgba(251,146,60,0.7))',
+        filter: 'drop-shadow(0 0 8px rgba(253,186,116,0.85)) drop-shadow(0 0 8px rgba(254,215,170,0.8))',
       },
     };
   };
 
   const getRecordIconStyle = (isNewRecordToday: boolean): { className: string; style?: React.CSSProperties } => {
     if (!isNewRecordToday) {
-      return { className: 'w-6 h-6 text-zinc-300 opacity-70' };
+      return { className: 'w-6 h-6 text-white opacity-90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]' };
     }
 
     return {
       className: 'w-6 h-6 shrink-0 text-white opacity-100',
       style: {
-        filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.7)) drop-shadow(0 0 18px rgba(250,204,21,0.7))',
+        filter: 'drop-shadow(0 0 8px rgba(255,255,255,0.55)) drop-shadow(0 0 18px rgba(255,255,255,0.35))',
       },
     };
   };
@@ -1839,7 +2224,11 @@ export default function App() {
     localStorage.setItem('totalQuestions', newTotal.toString());
 
     // Check for achievements with the new history
-    const newlyAchieved = ACHIEVEMENTS.filter(a => getAchievementStatus(a, newTotal, newHistory, today, totalPracticeTests) && !lastAchievedIds.includes(a.id));
+    const newlyAchieved = ACHIEVEMENTS.filter(
+      (a) =>
+        getAchievementStatus(a, newTotal, newHistory, today, totalPracticeTests, bonusPoints) &&
+        !lastAchievedIds.includes(a.id)
+    );
     const toCelebrate = achievementIdsForCelebration(newlyAchieved);
     if (newlyAchieved.length > 0) {
       const [first, ...rest] = toCelebrate;
@@ -1997,7 +2386,16 @@ export default function App() {
                   {dailyQuestions}
                 </span>
               <span className="text-2xl font-bold opacity-90 mt-4 tracking-wide">Questions Done Today</span>
-              <div className="w-full mt-2">
+              {bonusPointsEarnedToday > 0 && (
+                <span className="mt-[8px] block text-base font-semibold text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Plus{' '}
+                  <span className="font-semibold text-purple-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                    {bonusPointsEarnedToday} BP
+                  </span>{' '}
+                  earned!
+                </span>
+              )}
+              <div className={`w-full ${bonusPointsEarnedToday > 0 ? 'mt-[16px]' : 'mt-2'}`}>
                 <QuestionButtons onUpdate={addQuestions} isTestMode={isTestMode} isWarningMode={isWarningMode} isSleepMode={isSleepMode} />
               </div>
               <button
@@ -2032,7 +2430,7 @@ export default function App() {
             {/* Action Buttons removed */}
 
             {/* Motivation */}
-            {!isWarningMode && getMotivation() && (
+            {!isWarningMode && !isSleepMode && getMotivation() && (
               <div className="text-3xl font-medium text-yellow-100 drop-shadow-md text-center px-6 flex items-center justify-center min-h-[4rem]">
                 {getMotivation()}
               </div>
@@ -2063,7 +2461,7 @@ export default function App() {
               displayVariant={displayVariant}
               isWarningMode={isWarningMode}
               nextLevel={nextLevel}
-              questionsToNext={questionsToNext}
+              xpToNext={xpToNext}
               unlockedVariantsCount={unlockedVariants.length}
               setShowImageViewer={setShowImageViewer}
               setShowVariantModal={setShowVariantModal}
@@ -2148,20 +2546,48 @@ export default function App() {
           {/* Footer Stats */}
           <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 space-y-6">
             <h2 className="text-2xl font-black text-white uppercase tracking-widest text-center">My Stats</h2>
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-3 gap-6">
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
                   <BookOpen className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-yellow-300'}`} />
                   <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}>{Object.values(history).reduce((a: number, b: number) => a + b, 0)}</span>
                 </div>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Total Questions</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white mt-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Total Questions
+                </span>
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
-                  <Calendar className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-yellow-300'}`} />
-                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}>{daysUntilExam}</span>
+                  <Zap className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-purple-300'}`} />
+                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-purple-300'}`}>{bonusPoints}</span>
                 </div>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Days Till Step 2</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Bonus Points
+                </span>
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <div className="flex items-center gap-2">
+                  <Star className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-teal-300'}`} />
+                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-teal-300'}`}>{totalExperiencePoints}</span>
+                </div>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Experience Points
+                </span>
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <div className="flex items-center gap-2">
+                  <Calendar
+                    className={`w-6 h-6 drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)] ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-[#FF8A65]'}`}
+                  />
+                  <span
+                    className={`text-4xl font-black drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] ${isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'}`}
+                  >
+                    {daysUntilExam}
+                  </span>
+                </div>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Days Till Step 2
+                </span>
               </div>
               
               {/* New Row */}
@@ -2170,14 +2596,32 @@ export default function App() {
                   {(() => {
                     const streak = calculateCurrentStreak(history, effectiveTime);
                     const flameStyle = getStreakFlameStyle(streak);
-                    const streakTextStyle = streak >= 3 ? { filter: flameStyle.style?.filter } : undefined;
-                    const streakTextColorClass = streak >= 5 ? 'text-white' : 'text-yellow-300';
+                    const streakGlowFilter =
+                      !isSleepMode && !isWarningMode && streak >= 3 ? flameStyle.style?.filter : undefined;
+                    const streakVariant = streakFlameVariantFromCount(streak);
+                    const streakNumberStyle: React.CSSProperties | undefined =
+                      !isSleepMode && !isWarningMode
+                        ? {
+                            ...(streakGlowFilter ? { filter: streakGlowFilter } : {}),
+                            color: streakStatNumberColorFromVariant(streakVariant),
+                          }
+                        : streakGlowFilter
+                          ? { filter: streakGlowFilter }
+                          : undefined;
+                    const streakTextColorClass = isWarningMode
+                      ? 'text-white/80'
+                      : isSleepMode
+                        ? 'text-orange-300'
+                        : '';
                     return (
                       <>
-                        <Flame className={flameStyle.className} style={flameStyle.style} />
+                        <Flame
+                          className={isSleepMode ? 'w-6 h-6 shrink-0 text-slate-400' : flameStyle.className}
+                          style={isSleepMode ? undefined : flameStyle.style}
+                        />
                         <span
-                          className={`text-4xl font-black drop-shadow-md ${streakTextColorClass}`}
-                          style={streakTextStyle}
+                          className={`text-4xl font-black drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] ${streakTextColorClass}`}
+                          style={streakNumberStyle}
                         >
                           {streak}
                         </span>
@@ -2185,20 +2629,34 @@ export default function App() {
                     );
                   })()}
                 </div>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Current Streak</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Current Streak
+                </span>
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
-                  <ClipboardCheck className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-yellow-300'}`} />
-                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}>{totalPracticeTests}</span>
+                  <ClipboardCheck
+                    className={`w-6 h-6 drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)] ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-emerald-300'}`}
+                  />
+                  <span
+                    className={`text-4xl font-black drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] ${isWarningMode ? 'text-white/80' : 'text-emerald-300'}`}
+                  >
+                    {totalPracticeTests}
+                  </span>
                 </div>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Practice Tests</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Practice Tests
+                </span>
               </div>
 
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
-                  <TrendingUp className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-yellow-300'}`} />
-                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-yellow-300'}`}>
+                  <TrendingUp
+                    className={`w-6 h-6 drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)] ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-sky-300'}`}
+                  />
+                  <span
+                    className={`text-4xl font-black drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] ${isWarningMode ? 'text-white/80' : 'text-sky-300'}`}
+                  >
                     {(() => {
                       const historyWithToday = { ...history, [todayKey]: dailyQuestions };
                       const last3ByDate = Object.entries(historyWithToday)
@@ -2211,7 +2669,9 @@ export default function App() {
                     })()}
                   </span>
                 </div>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Avg Questions (Last 3 Days)</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Avg Questions (Last 3 Days)
+                </span>
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
@@ -2227,7 +2687,12 @@ export default function App() {
                     const isNewRecordToday = todayCount > maxOnOtherDays;
                     const recordIconStyle = getRecordIconStyle(isNewRecordToday);
 
-                    return <Award className={recordIconStyle.className} style={recordIconStyle.style} />;
+                    return (
+                      <Award
+                        className={isSleepMode ? 'w-6 h-6 text-slate-400' : recordIconStyle.className}
+                        style={isSleepMode ? undefined : recordIconStyle.style}
+                      />
+                    );
                   })()}
                   {(() => {
                     const todayStr = dateKeyFromDate(effectiveTime);
@@ -2239,19 +2704,23 @@ export default function App() {
                         .map(([, value]) => Number(value))
                     );
                     const isNewRecordToday = todayCount > maxOnOtherDays;
-                    const recordIconStyle = getRecordIconStyle(isNewRecordToday);
-                    const recordTextColorClass = isNewRecordToday ? 'text-white' : 'text-yellow-300';
                     return (
                       <span
-                        className={`text-4xl font-black drop-shadow-md ${recordTextColorClass}`}
-                        style={recordIconStyle.style}
+                        className={`text-4xl font-black drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] ${isWarningMode ? 'text-white/80' : 'text-white'}`}
+                        style={
+                          !isSleepMode && !isWarningMode && isNewRecordToday
+                            ? { filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.5))' }
+                            : undefined
+                        }
                       >
                         {Math.max(...(Object.values(history) as number[]), 0)}
                       </span>
                     );
                   })()}
                 </div>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-white/90 mt-2">Record Questions In Day</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Record Questions In Day
+                </span>
               </div>
             </div>
 
@@ -2269,6 +2738,8 @@ export default function App() {
           <motion.div variants={mainSectionReveal} className="hidden lg:block w-full">
             <AchievementsSection 
               totalQuestions={totalQuestions} 
+              bonusPoints={bonusPoints}
+              lastAchievedIds={lastAchievedIds}
               totalPracticeTests={totalPracticeTests}
               history={history}
               effectiveTime={effectiveTime}
@@ -2309,7 +2780,7 @@ export default function App() {
               displayVariant={displayVariant}
               isWarningMode={isWarningMode}
               nextLevel={nextLevel}
-              questionsToNext={questionsToNext}
+              xpToNext={xpToNext}
               unlockedVariantsCount={unlockedVariants.length}
               setShowImageViewer={setShowImageViewer}
               setShowVariantModal={setShowVariantModal}
@@ -2317,134 +2788,24 @@ export default function App() {
             />
           </motion.div>
 
-          {/* History Section */}
-          <motion.section variants={mainSectionReveal} className="section-panel-ocean-frost p-6 flex flex-col items-center gap-6">
+          {/* History Section — month calendars from study start through exam; height grows with date range */}
+          <motion.section
+            variants={mainSectionReveal}
+            className="section-panel-ocean-frost overflow-visible p-6 flex flex-col items-center gap-6"
+          >
             <div className="flex items-center gap-3">
               <Calendar className="w-6 h-6 text-yellow-300" />
               <h2 className="text-2xl font-black text-white uppercase tracking-widest">History</h2>
             </div>
 
-            <div className="w-full space-y-6">
-              {(() => {
-                const rows = [];
-                const startDate = new Date(2026, 3, 5); // April 5, 2026 (Local Time)
-                const todayStr = dateKeyFromDate(effectiveTime);
-                const historyTierMid = Math.max(1, Math.round(dailyGoalQuestions * (MILESTONE_1 / DAILY_GOAL)));
-
-                let cumulativeTotal = 0;
-                // Add up history before start date
-                Object.keys(history).forEach(dateStr => {
-                  const [y, m, d] = dateStr.split('-').map(Number);
-                  const date = new Date(y, m - 1, d);
-                  if (date < startDate) {
-                    cumulativeTotal += history[dateStr];
-                  }
-                });
-
-                for (let week = 0; week < 8; week++) {
-                  const weekCells = [];
-                  const weekStart = new Date(startDate);
-                  weekStart.setDate(startDate.getDate() + (week * 7));
-                  const weekEnd = new Date(weekStart);
-                  weekEnd.setDate(weekStart.getDate() + 6);
-
-                  const weekLabel = `Week ${week + 1}: ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-
-                  let levelsReachedThisWeek: Level[] = [];
-
-                  for (let day = 0; day < 7; day++) {
-                    const date = new Date(weekStart);
-                    date.setDate(weekStart.getDate() + day);
-                    const dateKey = dateKeyFromDate(date);
-                    const count = history[dateKey] || 0;
-                    const isToday = dateKey === todayStr;
-                    const isFuture = date > effectiveTime;
-                    const isExamDay = dateKey === examDateKey;
-                    const isTrophyOnLightBackground = count > 45;
-
-                    cumulativeTotal += count;
-
-                    // Check for level ups this week
-                    LEVELS.forEach(level => {
-                      if (cumulativeTotal >= level.min && cumulativeTotal - count < level.min) {
-                        levelsReachedThisWeek.push(level);
-                      }
-                    });
-
-                    const dynamicColor =
-                      !isSleepMode && !isWarningMode && !isExamDay && !(isFuture && !isTestMode)
-                        ? getHistoryColor(count, dailyGoalQuestions)
-                        : null;
-
-                    weekCells.push(
-                      <div 
-                        key={dateKey}
-                        onClick={() => setSelectedHistoryDate({ date: date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), count, dateKey, isExamDay })}
-                        className={`question-count-clay-btn aspect-square rounded-lg flex items-center justify-center text-xs font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative ${
-                          isExamDay
-                            ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]'
-                            : isFuture && !isTestMode
-                              ? 'bg-white/5 text-white/20'
-                              : dynamicColor
-                                ? '' 
-                                : isToday
-                                  ? 'bg-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.3)]'
-                                  : count >= dailyGoalQuestions
-                                    ? 'bg-green-500 text-white'
-                                    : count >= historyTierMid
-                                      ? 'bg-yellow-500 text-white'
-                                      : count > 0
-                                        ? 'bg-red-500 text-white'
-                                        : 'bg-white/10 text-white/40'
-                        }`}
-                        style={dynamicColor ? {
-                          backgroundColor: dynamicColor,
-                          color: count > 45 ? 'black' : 'white'
-                        } : {}}
-                      >
-                        {isExamDay ? (
-                          'EXAM'
-                        ) : (
-                          <div className="flex flex-col items-center justify-center leading-none">
-                            <span>{count > 0 ? count : ''}</span>
-                            {practiceTestCompletionDates[dateKey] && (
-                              <Trophy className={`w-3 h-3 mt-0.5 ${isTrophyOnLightBackground ? 'text-black' : 'text-yellow-300'}`} />
-                            )}
-                          </div>
-                        )}
-                        {isToday && (
-                          <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-ping" />
-                        )}
-                      </div>
-                    );
-                  }
-
-                  rows.push(
-                    <div key={week} className="space-y-2">
-                      <div className="flex justify-between items-center px-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">{weekLabel}</span>
-                        {levelsReachedThisWeek.length > 0 && (
-                          <div className="flex gap-1">
-                            {levelsReachedThisWeek.map((l, idx) => (
-                              <span key={`${l.name}-${idx}`} title={`Reached ${l.name}`} className="text-xs">{l.emoji}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-7 gap-2">
-                        {weekCells}
-                      </div>
-                    </div>
-                  );
-                }
-                return rows;
-              })()}
-            </div>
+            <div className="w-full flex flex-col gap-8">{historyCalendarMonths}</div>
           </motion.section>
 
           <motion.div variants={mainSectionReveal} className="lg:hidden w-full">
             <AchievementsSection 
               totalQuestions={totalQuestions} 
+              bonusPoints={bonusPoints}
+              lastAchievedIds={lastAchievedIds}
               totalPracticeTests={totalPracticeTests}
               history={history}
               effectiveTime={effectiveTime}
@@ -2509,6 +2870,7 @@ export default function App() {
                     Questions included in the test
                   </label>
                   <input
+                    ref={practiceTestEntryFirstInputRef}
                     id="practice-test-q"
                     type="number"
                     min={0}
@@ -2636,12 +2998,12 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-emerald-50 border-2 border-emerald-200 px-4 py-4 mb-6">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700 mb-2">
-                  Bonus questions today
+              <div className="rounded-2xl bg-violet-50 border-2 border-violet-200 px-4 py-4 mb-6">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-700 mb-2">
+                  Bonus points
                 </p>
-                <p className="text-base font-bold text-emerald-950 leading-snug">
-                  +{greatProgressSnapshot.bonusQuestions} questions added to your daily question count ({greatProgressSnapshot.deltaPoints}{' '}
+                <p className="text-base font-bold text-violet-950 leading-snug">
+                  +{greatProgressSnapshot.bonusPoints} bonus points earned ({greatProgressSnapshot.deltaPoints}{' '}
                   point{greatProgressSnapshot.deltaPoints === 1 ? '' : 's'} improvement × 20). Score went from{' '}
                   {greatProgressSnapshot.previousScore} to {greatProgressSnapshot.newScore}.
                 </p>
@@ -2876,6 +3238,7 @@ export default function App() {
                   Number of questions
                 </label>
                 <input
+                  ref={logSetFirstInputRef}
                   id="log-win-q"
                   type="number"
                   min={1}
@@ -2990,14 +3353,16 @@ export default function App() {
                   </div>
                   <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
                     <div className="flex flex-col">
-                      <span>Bonus questions</span>
+                      <span>Bonus Points</span>
                       <span className="text-[11px] font-medium text-cyan-700"># logged x % correct</span>
                     </div>
-                    <span className="font-black tabular-nums">{logWinCelebrate.bonusQuestions}</span>
+                    <span className="font-black tabular-nums text-purple-700">{logWinCelebrate.bonusPointsEarned}</span>
                   </div>
                   <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950 pt-2 border-t border-cyan-200">
-                    <span>Total Logged</span>
-                    <span className="font-black tabular-nums">{logWinCelebrate.questionsCovered + logWinCelebrate.bonusQuestions}</span>
+                    <span>Total XP Logged</span>
+                    <span className="font-black tabular-nums text-teal-600">
+                      {logWinCelebrate.questionsCovered + logWinCelebrate.bonusPointsEarned}
+                    </span>
                   </div>
                 </div>
                 <button
@@ -3081,6 +3446,17 @@ export default function App() {
                       } text-sm font-black uppercase tracking-widest`}>
                         Questions Completed
                       </div>
+                      {(() => {
+                        const dk = selectedHistoryDate.dateKey;
+                        const bpDay = Math.max(0, Number(bonusPointsHistory[dk] ?? 0) || 0);
+                        if (bpDay <= 0) return null;
+                        return (
+                          <span className="mt-2 block text-sm font-semibold text-gray-600">
+                            Plus{' '}
+                            <span className="font-semibold text-purple-600">{bpDay} BP</span> earned!
+                          </span>
+                        );
+                      })()}
 
                       {isTestMode && (
                         <div className="w-full max-w-full min-w-0 mt-1 px-0.5">
@@ -3125,8 +3501,8 @@ export default function App() {
                         )}
 
                         {practiceTestCompletionDates[selectedHistoryDate.dateKey] && (
-                          <div className="mt-4 pt-4 border-t border-cyan-200 text-left space-y-3">
-                            <div className="space-y-1">
+                          <div className="mt-4 pt-4 border-t border-cyan-200 text-left grid grid-cols-2 gap-3">
+                            <div className="space-y-1 min-w-0">
                               <span className="block text-[10px] font-black uppercase tracking-widest text-cyan-800/80">
                                 Questions Completed
                               </span>
@@ -3156,7 +3532,7 @@ export default function App() {
                                 </p>
                               )}
                             </div>
-                            <div className="space-y-1">
+                            <div className="space-y-1 min-w-0">
                               <span className="block text-[10px] font-black uppercase tracking-widest text-cyan-800/80">
                                 Practice Test Score
                               </span>
@@ -3182,7 +3558,7 @@ export default function App() {
                                 </p>
                               )}
                             </div>
-                            <div className="space-y-1">
+                            <div className="space-y-1 min-w-0">
                               <span className="block text-[10px] font-black uppercase tracking-widest text-cyan-800/80">
                                 % Correct
                               </span>
@@ -3211,6 +3587,21 @@ export default function App() {
                                     : '—'}
                                 </p>
                               )}
+                            </div>
+                            <div className="space-y-1 min-w-0">
+                              <span className="block text-[10px] font-black uppercase tracking-widest text-cyan-800/80">
+                                Bonus Points
+                              </span>
+                              <p className="text-sm font-black text-gray-900 tabular-nums">
+                                {practiceTestPercents[selectedHistoryDate.dateKey] !== undefined
+                                  ? accuracyBonusPointsFor(
+                                      practiceTestQuestionCounts[selectedHistoryDate.dateKey] ??
+                                        practiceTestQuestionCredits[selectedHistoryDate.dateKey] ??
+                                        0,
+                                      practiceTestPercents[selectedHistoryDate.dateKey]
+                                    )
+                                  : '—'}
+                              </p>
                             </div>
                           </div>
                         )}
@@ -3260,7 +3651,7 @@ export default function App() {
               
               <div className="flex flex-col gap-8">
                 {LEVELS.map((level, index) => {
-                  const isReached = totalQuestions >= level.min;
+                  const isReached = totalExperiencePoints >= level.min;
                   const isCurrent = index === currentLevelIndex;
                   const showImage = isReached || isTestMode;
                   
@@ -3294,7 +3685,7 @@ export default function App() {
                         )}
                         <div className={`${isCurrent ? 'text-fuchsia-300' : 'text-cyan-300'} font-black text-sm uppercase tracking-widest`}>Level {index + 1}</div>
                         <div className="text-2xl font-black text-white uppercase">{level.name}</div>
-                        <div className="text-white/60 font-medium">{level.min} Questions Required</div>
+                        <div className="text-white/60 font-medium">{level.min} XP Required</div>
                       </div>
                     </div>
                   );
@@ -3609,7 +4000,11 @@ export default function App() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => setIsWarningMode(!isWarningMode)}
+                          onClick={() => {
+                            const next = !isWarningMode;
+                            setIsWarningMode(next);
+                            if (next) setAdminSleepModeForceOn(false);
+                          }}
                           className={`w-12 h-6 rounded-full transition-colors relative ${isWarningMode ? 'bg-red-500' : 'bg-gray-300'}`}
                         >
                           <motion.div
@@ -3627,13 +4022,17 @@ export default function App() {
                           <div className="min-w-0">
                             <span className="font-black uppercase text-sm text-blue-900 block">Sleep Mode (test)</span>
                             <span className="text-[10px] font-medium text-gray-500 normal-case tracking-normal">
-                              Force Sleep Mode on for UI preview (ignores time of day).
+                              While Admin Mode is on, only this toggle controls Sleep Mode (natural night window is paused).
                             </span>
                           </div>
                         </div>
                         <button
                           type="button"
-                          onClick={() => setAdminSleepModeForceOn(!adminSleepModeForceOn)}
+                          onClick={() => {
+                            const next = !adminSleepModeForceOn;
+                            setAdminSleepModeForceOn(next);
+                            if (next) setIsWarningMode(false);
+                          }}
                           className={`w-12 h-6 shrink-0 rounded-full transition-colors relative ${adminSleepModeForceOn ? 'bg-indigo-500' : 'bg-gray-300'}`}
                         >
                           <motion.div
@@ -3974,7 +4373,7 @@ export default function App() {
               className={`relative ${modalPanelSizeClass} min-h-0 flex flex-col section-panel-ocean-frost-base border-4 shadow-[0_0_50px_rgba(250,204,21,0.3)] overflow-hidden ${
                 showAchievementCelebration 
                   ? 'border-fuchsia-500 shadow-[0_0_70px_rgba(217,70,239,0.5)]' 
-                  : getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests) 
+                  : getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests, bonusPoints, lastAchievedIds) 
                     ? 'border-yellow-400/50' 
                     : 'border-white/20'
               }`}
@@ -3992,7 +4391,7 @@ export default function App() {
               </button>
 
               <div className={`${modalBodyScrollClass} custom-scrollbar`} data-modal-scroll="true">
-                {getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests) ? (
+                {getAchievementStatus(selectedAchievement, totalQuestions, history, effectiveTime, totalPracticeTests, bonusPoints, lastAchievedIds) ? (
                   <>
                     <div className="w-full h-[220px] md:h-[350px] bg-white/5 flex items-center justify-center overflow-hidden border-b border-white/10 relative">
                       {showAchievementCelebration && (

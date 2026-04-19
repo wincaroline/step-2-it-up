@@ -10,7 +10,7 @@ interface LevelSectionProps {
   displayVariant: string;
   isWarningMode: boolean;
   nextLevel: Level | undefined;
-  questionsToNext: number;
+  xpToNext: number;
   unlockedVariantsCount: number;
   setShowImageViewer: (show: boolean) => void;
   setShowVariantModal: (show: boolean) => void;
@@ -23,7 +23,7 @@ export const LevelSection: React.FC<LevelSectionProps> = React.memo(({
   displayVariant,
   isWarningMode,
   nextLevel,
-  questionsToNext,
+  xpToNext,
   unlockedVariantsCount,
   setShowImageViewer,
   setShowVariantModal,
@@ -83,7 +83,7 @@ export const LevelSection: React.FC<LevelSectionProps> = React.memo(({
           onClick={() => setShowLevelMap(true)}
           className="mt-2 bg-black/30 px-6 py-3 rounded-full text-sm font-black uppercase tracking-[0.2em] border border-white/20 shadow-lg cursor-pointer hover:bg-black/40 transition-all"
         >
-          <span className="text-cyan-300">{questionsToNext}</span> Questions to next level
+          <span className="text-cyan-300">{xpToNext}</span> XP to next level
         </div>
       )}
     </section>

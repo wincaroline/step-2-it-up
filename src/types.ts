@@ -14,7 +14,8 @@ export interface Achievement {
   achievementDescription: string;
   requirementDescription: string;
   extraSillyDescription: string;
-  isAchieved: (totalQuestions: number) => boolean;
+  /** For XP-gated entries, this is total XP (questions + bonus). */
+  isAchieved: (totalXp: number) => boolean;
 }
 
 export type StreakFlameVariant = 1 | 2 | 3 | 4 | 5;

@@ -64,16 +64,20 @@ function asDailyGoalQuestions(v: unknown, fallback: number): number {
   return Math.min(9999, Math.round(n));
 }
 
-/** Reads Firestore document fields into `UserProgressV1`. Missing fields use defaults. */
+/** Reads Firestore document fields into `UserProgressV1`. Missing fields use defaults. Accepts legacy `v: 1`. */
 export function parseUserProgressDoc(data: DocumentData | undefined): UserProgressV1 | null {
   if (!data || typeof data !== 'object') return null;
   const base = emptyUserProgress();
-  if (data.v !== USER_PROGRESS_VERSION) return null;
+  const docVersion = data.v;
+  if (docVersion !== 1 && docVersion !== USER_PROGRESS_VERSION) return null;
 
   return {
     v: USER_PROGRESS_VERSION,
     dailyQuestions: asNum(data.dailyQuestions, base.dailyQuestions),
     totalQuestions: asNum(data.totalQuestions, base.totalQuestions),
+    bonusPoints: Math.max(0, asNum(data.bonusPoints, base.bonusPoints)),
+    bonusPointsHistory:
+      docVersion >= 2 ? asRecordNum(data.bonusPointsHistory) : {},
     history: asRecordNum(data.history),
     lastLevel: asNum(data.lastLevel, base.lastLevel),
     selectedVariants: asRecordStr(data.selectedVariants),
@@ -112,6 +116,8 @@ export async function saveUserProgress(db: Firestore, uid: string, progress: Use
 export function buildProgressFromAppState(args: {
   dailyQuestions: number;
   totalQuestions: number;
+  bonusPoints: number;
+  bonusPointsHistory: Record<string, number>;
   history: Record<string, number>;
   lastLevel: number;
   selectedVariants: Record<string, string>;
@@ -139,6 +145,8 @@ export function buildProgressFromAppState(args: {
     v: USER_PROGRESS_VERSION,
     dailyQuestions: args.dailyQuestions,
     totalQuestions: args.totalQuestions,
+    bonusPoints: Math.max(0, args.bonusPoints),
+    bonusPointsHistory: args.bonusPointsHistory,
     history: args.history,
     lastLevel: args.lastLevel,
     selectedVariants: args.selectedVariants,

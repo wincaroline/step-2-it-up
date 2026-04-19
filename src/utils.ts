@@ -2,6 +2,12 @@
 import { ACHIEVEMENTS, DAILY_GOAL, LEVELS, LEVEL_VARIANTS } from './constants';
 import { StreakFlameVariant, Achievement } from './types';
 
+/** XP threshold for a main level badge whose `image` matches a row in {@link LEVELS}. */
+function mainLevelXpThreshold(achievement: Achievement): number | null {
+  const row = LEVELS.find((l) => l.graphic === achievement.image);
+  return row != null && row.min > 0 ? row.min : null;
+}
+
 /** URL for a file in `public/` (respects Vite `base`, e.g. GitHub Pages project subpath). */
 export function publicAsset(path: string): string {
   const normalized = path.replace(/^\/+/, '');
@@ -60,20 +66,39 @@ export function formatExamDateLabel(key: string): string {
   });
 }
 
+/** Tailwind `emerald-500` — matches Question count +10 / +100 buttons. */
+const HISTORY_GOAL_RGB = { r: 16, g: 185, b: 129 } as const;
+/** Muted anchors for red → amber → goal green (Tailwind `red-800`, `amber-600`). */
+const HISTORY_LOW_RGB = { r: 153, g: 27, b: 27 } as const;
+const HISTORY_MID_RGB = { r: 217, g: 119, b: 6 } as const;
+
+function lerpChannel(a: number, b: number, t: number): number {
+  return Math.round(a + (b - a) * t);
+}
+
+function rgbString(c1: { r: number; g: number; b: number }, c2: { r: number; g: number; b: number }, t: number): string {
+  const r = lerpChannel(c1.r, c2.r, t);
+  const g = lerpChannel(c1.g, c2.g, t);
+  const b = lerpChannel(c1.b, c2.b, t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 export function getHistoryColor(count: number, dailyGoal: number = DAILY_GOAL): string {
   const goal = dailyGoal > 0 ? dailyGoal : DAILY_GOAL;
   const halfGoal = goal / 2;
-  if (count === 0) return 'rgb(255, 0, 0)';
-  if (count >= goal) return 'rgb(0, 255, 0)';
+  if (count === 0) {
+    return `rgb(${HISTORY_LOW_RGB.r}, ${HISTORY_LOW_RGB.g}, ${HISTORY_LOW_RGB.b})`;
+  }
+  if (count >= goal) {
+    return `rgb(${HISTORY_GOAL_RGB.r}, ${HISTORY_GOAL_RGB.g}, ${HISTORY_GOAL_RGB.b})`;
+  }
 
   if (count <= halfGoal) {
-    const ratio = count / halfGoal;
-    const g = Math.round(255 * ratio);
-    return `rgb(255, ${g}, 0)`;
+    const ratio = halfGoal > 0 ? count / halfGoal : 1;
+    return rgbString(HISTORY_LOW_RGB, HISTORY_MID_RGB, ratio);
   }
-  const ratio = (count - halfGoal) / halfGoal;
-  const r = Math.round(255 * (1 - ratio));
-  return `rgb(${r}, 255, 0)`;
+  const ratio = halfGoal > 0 ? (count - halfGoal) / halfGoal : 1;
+  return rgbString(HISTORY_MID_RGB, HISTORY_GOAL_RGB, ratio);
 }
 
 export function calculateCurrentStreak(history: Record<string, number>, referenceDate: Date = new Date()): number {
@@ -94,6 +119,15 @@ export function calculateCurrentStreak(history: Record<string, number>, referenc
 
 export function streakFlameVariantFromCount(streak: number): StreakFlameVariant {
   return Math.min(5, Math.max(1, streak)) as StreakFlameVariant;
+}
+
+/** Tailwind `orange-300` — matches streak stat number + flame base in My Stats. */
+const STREAK_STAT_ORANGE_RGB = { r: 253, g: 186, b: 116 } as const;
+
+/** Current Streak digit color: lerps toward white as variant 1→5 so the number stays readable under stronger glow. */
+export function streakStatNumberColorFromVariant(variant: StreakFlameVariant): string {
+  const t = (variant - 1) / 4;
+  return rgbString(STREAK_STAT_ORANGE_RGB, { r: 255, g: 255, b: 255 }, t);
 }
 
 export type PracticeTestScorePoint = { dateKey: string; testNumber: number; score: number };
@@ -135,12 +169,17 @@ export const PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS: Record<string, number> = {
 };
 
 export function getAchievementStatus(
-  achievement: Achievement, 
-  totalQuestions: number, 
-  history: Record<string, number>, 
-  referenceDate: Date | undefined, 
-  totalPracticeTests: number
+  achievement: Achievement,
+  totalQuestions: number,
+  history: Record<string, number>,
+  referenceDate: Date | undefined,
+  totalPracticeTests: number,
+  /** Accuracy / practice bonuses — counts toward main level-tier badges (same XP as the level ladder). */
+  bonusPoints: number = 0,
+  /** When set (e.g. `lastAchievedIds`), IDs already stored stay unlocked for display after threshold tweaks. Omit when detecting *new* unlocks. */
+  persistedUnlockedIds?: readonly string[]
 ): boolean {
+  if (persistedUnlockedIds?.includes(achievement.id)) return true;
   const practiceThreshold = PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS[achievement.id];
   if (practiceThreshold !== undefined) return totalPracticeTests >= practiceThreshold;
   if (['steadyswimmer', 'highfivefin', 'tenacioustraveler', 'torrenttamer', 'silverspawner', 'streamsovereign'].includes(achievement.id)) {
@@ -152,5 +191,10 @@ export function getAchievementStatus(
     if (achievement.id === 'silverspawner') return streak >= 30;
     if (achievement.id === 'streamsovereign') return streak >= 40;
   }
-  return achievement.isAchieved(totalQuestions);
+  const levelMin = mainLevelXpThreshold(achievement);
+  if (levelMin !== null) {
+    return totalQuestions + Math.max(0, bonusPoints) >= levelMin;
+  }
+  const totalXp = totalQuestions + Math.max(0, bonusPoints);
+  return achievement.isAchieved(totalXp);
 }

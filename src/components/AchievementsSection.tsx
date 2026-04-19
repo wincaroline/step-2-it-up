@@ -7,6 +7,8 @@ import { getAchievementStatus, graphicAsset } from '../utils';
 
 interface AchievementsSectionProps {
   totalQuestions: number;
+  bonusPoints: number;
+  lastAchievedIds: string[];
   totalPracticeTests: number;
   history: Record<string, number>;
   effectiveTime: Date;
@@ -16,13 +18,17 @@ interface AchievementsSectionProps {
 
 export const AchievementsSection: React.FC<AchievementsSectionProps> = React.memo(({
   totalQuestions,
+  bonusPoints,
+  lastAchievedIds,
   totalPracticeTests,
   history,
   effectiveTime,
   setSelectedAchievement,
   className = "",
 }) => {
-  const achievedCount = ACHIEVEMENTS.filter(a => getAchievementStatus(a, totalQuestions, history, effectiveTime, totalPracticeTests)).length;
+  const achievedCount = ACHIEVEMENTS.filter(a =>
+    getAchievementStatus(a, totalQuestions, history, effectiveTime, totalPracticeTests, bonusPoints, lastAchievedIds)
+  ).length;
   
   return (
     <section className={`section-panel-ocean-frost p-6 flex flex-col items-center gap-6 ${className}`}>
@@ -36,7 +42,15 @@ export const AchievementsSection: React.FC<AchievementsSectionProps> = React.mem
       
       <div className="grid grid-cols-3 gap-4 w-full">
         {ACHIEVEMENTS.map((achievement) => {
-          const achieved = getAchievementStatus(achievement, totalQuestions, history, effectiveTime, totalPracticeTests);
+          const achieved = getAchievementStatus(
+            achievement,
+            totalQuestions,
+            history,
+            effectiveTime,
+            totalPracticeTests,
+            bonusPoints,
+            lastAchievedIds
+          );
           return (
             <div 
               key={achievement.id}
