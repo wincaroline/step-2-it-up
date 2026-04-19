@@ -96,16 +96,29 @@ function computePracticeTestCreditFromRawInputs(questionsRaw: string, percentRaw
   return computePracticeTestQuestionsCredit(q, p);
 }
 
+/** True only if the user has real tracked progress — not merely `{ today: 0 }` seeded on first mount. */
 function hasLocalPriorUsage(): boolean {
   if (typeof window === 'undefined') return false;
   try {
+    const tq = localStorage.getItem('totalQuestions');
+    if (tq != null && parseInt(tq, 10) > 0) return true;
+
     const rawHistory = localStorage.getItem('history');
     if (rawHistory) {
       const parsed = JSON.parse(rawHistory) as Record<string, unknown>;
-      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return true;
+      if (parsed && typeof parsed === 'object') {
+        for (const v of Object.values(parsed)) {
+          const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+          if (!Number.isNaN(n) && n > 0) return true;
+        }
+      }
     }
-    const tq = localStorage.getItem('totalQuestions');
-    if (tq != null && parseInt(tq, 10) > 0) return true;
+
+    const lastLevelSaved = localStorage.getItem('lastLevel');
+    if (lastLevelSaved != null && parseInt(lastLevelSaved, 10) > 0) return true;
+
+    const tpt = localStorage.getItem('totalPracticeTests');
+    if (tpt != null && parseInt(tpt, 10) > 0) return true;
   } catch {
     // ignore corrupt storage
   }
@@ -560,7 +573,11 @@ export default function App() {
     }
 
     if (firebaseUser && cloudFirestoreReady) {
-      const hasProgress = totalQuestions > 0 || Object.keys(history).length > 0;
+      const hasProgress =
+        totalQuestions > 0 ||
+        Object.values(history).some((c) => Number(c) > 0) ||
+        lastLevel > 0 ||
+        totalPracticeTests > 0;
       if (hasProgress) {
         if (typeof window !== 'undefined') {
           localStorage.setItem(ONBOARDING_COMPLETE_STORAGE_KEY, 'true');
@@ -571,7 +588,15 @@ export default function App() {
     }
 
     setShowOnboarding(true);
-  }, [authResolved, firebaseUser, cloudFirestoreReady, totalQuestions, history]);
+  }, [
+    authResolved,
+    firebaseUser,
+    cloudFirestoreReady,
+    totalQuestions,
+    history,
+    lastLevel,
+    totalPracticeTests,
+  ]);
 
   useEffect(() => {
     if (!showOnboarding) return;
