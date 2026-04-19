@@ -22,11 +22,13 @@ import {
   LogIn,
   LogOut,
   Pencil,
+  Flag,
 } from 'lucide-react';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
 import { auth, db } from './firebase';
 import { buildProgressFromAppState, saveUserProgress, stableStringifyProgress } from './userProgressFirestore';
+import { submitFeedbackReport, type FeedbackReportCategory } from './feedbackFirestore';
 import { useFirestoreUserProgressListener } from './useFirestoreUserProgressListener';
 import { emptyUserProgress, type UserProgressV1 } from './userProgressSchema';
 
@@ -263,6 +265,11 @@ export default function App() {
   const [recordDayModalCount, setRecordDayModalCount] = useState(0);
   const [showLevelMap, setShowLevelMap] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showReportFeedbackModal, setShowReportFeedbackModal] = useState(false);
+  const [reportCategory, setReportCategory] = useState<FeedbackReportCategory>('bug');
+  const [reportDescription, setReportDescription] = useState('');
+  const [reportSubmitPending, setReportSubmitPending] = useState(false);
+  const [reportSubmitError, setReportSubmitError] = useState<string | null>(null);
   const [showGoogleLoginWarningModal, setShowGoogleLoginWarningModal] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
@@ -1285,6 +1292,7 @@ export default function App() {
       showRecordDayModal ||
       showGoogleLoginWarningModal ||
       showSettingsModal ||
+      showReportFeedbackModal ||
       showImageViewer ||
       showPracticeTestEntryModal ||
       showLogSetModal ||
@@ -1305,6 +1313,7 @@ export default function App() {
     showRecordDayModal,
     showGoogleLoginWarningModal,
     showSettingsModal,
+    showReportFeedbackModal,
     showImageViewer,
     showPracticeTestEntryModal,
     showLogSetModal,
@@ -1320,6 +1329,7 @@ export default function App() {
       showRecordDayModal ||
       showGoogleLoginWarningModal ||
       showSettingsModal ||
+      showReportFeedbackModal ||
       showImageViewer ||
       showPracticeTestEntryModal ||
       showLogSetModal ||
@@ -1341,6 +1351,7 @@ export default function App() {
     showRecordDayModal,
     showGoogleLoginWarningModal,
     showSettingsModal,
+    showReportFeedbackModal,
     showImageViewer,
     showPracticeTestEntryModal,
     showLogSetModal,
@@ -2334,6 +2345,19 @@ export default function App() {
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setReportSubmitError(null);
+                setReportCategory('bug');
+                setReportDescription('');
+                setShowReportFeedbackModal(true);
+              }}
+              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-white"
+              title="Report feedback"
+            >
+              <Flag className="w-5 h-5" />
             </button>
             <button 
               onClick={() => setShowSettingsModal(true)}
@@ -4108,6 +4132,137 @@ export default function App() {
                 >
                   DONE
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Report feedback */}
+        {showReportFeedbackModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.5, y: 100 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.5, y: 100 }}
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] relative`}
+            >
+              <div className={`${modalBodyScrollClass} p-8 space-y-6 custom-scrollbar`} data-modal-scroll="true">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-blue-900 text-2xl sm:text-3xl font-black uppercase">Report Feedback</h2>
+                  <button
+                    type="button"
+                    onClick={() => setShowReportFeedbackModal(false)}
+                    className="p-2 hover:bg-gray-100 rounded-full transition-colors shrink-0"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <form
+                  className="space-y-5"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!firebaseUser) {
+                      setReportSubmitError('Sign in with Google to submit feedback.');
+                      return;
+                    }
+                    const trimmed = reportDescription.trim();
+                    if (!trimmed) {
+                      setReportSubmitError('Please enter a description.');
+                      return;
+                    }
+                    setReportSubmitPending(true);
+                    setReportSubmitError(null);
+                    try {
+                      await submitFeedbackReport(db, firebaseUser.uid, reportCategory, trimmed);
+                      setReportDescription('');
+                      setReportCategory('bug');
+                      setShowReportFeedbackModal(false);
+                    } catch (err) {
+                      setReportSubmitError(err instanceof Error ? err.message : 'Something went wrong.');
+                    } finally {
+                      setReportSubmitPending(false);
+                    }
+                  }}
+                >
+                  <div className="space-y-2">
+                    <label htmlFor="report-category" className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                      Category <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      id="report-category"
+                      value={reportCategory}
+                      onChange={(e) => setReportCategory(e.target.value as FeedbackReportCategory)}
+                      className="w-full bg-white border-2 border-blue-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-blue-400"
+                    >
+                      <option value="bug">Bug</option>
+                      <option value="request">Request</option>
+                      <option value="feedback">Feedback</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="report-description" className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                      Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      id="report-description"
+                      value={reportDescription}
+                      onChange={(e) => setReportDescription(e.target.value)}
+                      rows={5}
+                      maxLength={8000}
+                      placeholder="What happened or what would you like to see?"
+                      className="w-full resize-y min-h-[120px] bg-white border-2 border-blue-200 rounded-xl px-4 py-3 font-sans text-blue-950 focus:outline-none focus:border-blue-400"
+                    />
+                  </div>
+
+                  {!firebaseUser && (
+                    <div className="flex flex-col gap-3">
+                      <p className="text-sm font-bold text-amber-700">
+                        Sign in with Google to submit — your report is tied to your account.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleContinueWithGoogleClick}
+                        disabled={authActionPending}
+                        className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
+                      >
+                        <LogIn className="w-4 h-4 shrink-0" />
+                        {authActionPending ? 'Opening Google…' : 'Log In with Google'}
+                      </button>
+                    </div>
+                  )}
+
+                  {reportSubmitError && (
+                    <p className="text-sm font-bold text-red-600">{reportSubmitError}</p>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowReportFeedbackModal(false)}
+                      className="question-count-clay-btn flex-1 bg-white border-2 border-gray-300 text-gray-800 py-4 rounded-2xl font-black text-base hover:bg-gray-50 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={
+                        reportSubmitPending ||
+                        !firebaseUser ||
+                        reportDescription.trim().length === 0
+                      }
+                      className="question-count-clay-btn flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-base transition-all disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      {reportSubmitPending ? 'Sending…' : 'Submit'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </motion.div>
           </motion.div>
