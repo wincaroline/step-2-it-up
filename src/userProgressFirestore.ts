@@ -54,6 +54,16 @@ function asStrArr(v: unknown, fallback: string[]): string[] {
   return v.filter((x): x is string => typeof x === 'string');
 }
 
+function asExamDateKey(v: unknown, fallback: string): string {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : fallback;
+}
+
+function asDailyGoalQuestions(v: unknown, fallback: number): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(9999, Math.round(n));
+}
+
 /** Reads Firestore document fields into `UserProgressV1`. Missing fields use defaults. */
 export function parseUserProgressDoc(data: DocumentData | undefined): UserProgressV1 | null {
   if (!data || typeof data !== 'object') return null;
@@ -80,6 +90,8 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
       typeof data.recordDayModalLastShown === 'string'
         ? data.recordDayModalLastShown
         : null,
+    examDateKey: asExamDateKey(data.examDateKey, base.examDateKey),
+    dailyGoalQuestions: asDailyGoalQuestions(data.dailyGoalQuestions, base.dailyGoalQuestions),
   };
 }
 
@@ -113,6 +125,8 @@ export function buildProgressFromAppState(args: {
   practiceTestPercents: Record<string, number>;
   lastAchievedIds: string[];
   recordDayModalLastShown?: string | null;
+  examDateKey: string;
+  dailyGoalQuestions: number;
 }): UserProgressV1 {
   let recordDayModalLastShown: string | null = null;
   if (args.recordDayModalLastShown !== undefined) {
@@ -138,6 +152,8 @@ export function buildProgressFromAppState(args: {
     practiceTestPercents: args.practiceTestPercents,
     lastAchievedIds: args.lastAchievedIds,
     recordDayModalLastShown,
+    examDateKey: args.examDateKey,
+    dailyGoalQuestions: args.dailyGoalQuestions,
   };
 }
 

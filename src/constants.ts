@@ -852,5 +852,8 @@ export const SILLY_STATEMENTS: Record<string, { moderate: string[], high: string
 
 export const DAILY_GOAL = 180;
 export const MILESTONE_1 = 120;
-export const EXAM_DATE = new Date('2026-05-30');
+/** Default Step 2 exam calendar day (local `YYYY-MM-DD`). */
+export const DEFAULT_EXAM_DATE_KEY = '2026-05-30';
+/** @deprecated Use persisted `examDateKey` / settings; kept as default fallback. */
+export const EXAM_DATE = new Date(DEFAULT_EXAM_DATE_KEY + 'T12:00:00');
 export const RECORD_DAY_MODAL_LAST_SHOWN_KEY = 'recordDayModalLastShownDate';

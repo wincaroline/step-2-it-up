@@ -399,7 +399,7 @@ export const PracticeTestScoresChart: React.FC<PracticeTestScoresChartProps> = (
                 strokeWidth={isHi ? 3 : 2}
                 style={{ pointerEvents: 'none' }}
               />
-              <title>{`Test ${p.testNumber}: ${p.score} — tap to edit`}</title>
+              <title>{`Test ${p.testNumber}: ${p.score} — tap to view`}</title>
             </g>
           );
         })}
@@ -487,7 +487,9 @@ export const PracticeTestScoresChart: React.FC<PracticeTestScoresChartProps> = (
               />
             </g>
             <title>
-              {last.missing ? 'Add score for latest test' : `${last.score} — latest practice test`}
+              {last.missing
+                ? 'Add score for latest test'
+                : `${last.score} — latest practice test (tap to view)`}
             </title>
           </g>
         )}

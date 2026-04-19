@@ -1,3 +1,5 @@
+import { DAILY_GOAL, DEFAULT_EXAM_DATE_KEY } from './constants';
+
 /** Persisted app progress (Firestore document `users/{uid}`). Bump `v` when shape changes. */
 export const USER_PROGRESS_VERSION = 1 as const;
 
@@ -19,6 +21,9 @@ export type UserProgressV1 = {
   lastAchievedIds: string[];
   /** Same meaning as localStorage key `recordDayModalLastShownDate`. */
   recordDayModalLastShown: string | null;
+  /** Step 2 exam day in local calendar `YYYY-MM-DD`. */
+  examDateKey: string;
+  dailyGoalQuestions: number;
 };
 
 export function emptyUserProgress(): UserProgressV1 {
@@ -39,5 +44,7 @@ export function emptyUserProgress(): UserProgressV1 {
     practiceTestPercents: {},
     lastAchievedIds: ['plankton'],
     recordDayModalLastShown: null,
+    examDateKey: DEFAULT_EXAM_DATE_KEY,
+    dailyGoalQuestions: DAILY_GOAL,
   };
 }

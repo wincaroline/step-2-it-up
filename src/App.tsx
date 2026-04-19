@@ -21,6 +21,7 @@ import {
   Flame,
   LogIn,
   LogOut,
+  Pencil,
 } from 'lucide-react';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
@@ -29,7 +30,16 @@ import { buildProgressFromAppState, saveUserProgress, stableStringifyProgress } 
 import { useFirestoreUserProgressListener } from './useFirestoreUserProgressListener';
 import { emptyUserProgress, type UserProgressV1 } from './userProgressSchema';
 
-import { LEVELS, LEVEL_VARIANTS, ACHIEVEMENTS, SILLY_STATEMENTS, DAILY_GOAL, MILESTONE_1, EXAM_DATE, RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
+import {
+  LEVELS,
+  LEVEL_VARIANTS,
+  ACHIEVEMENTS,
+  SILLY_STATEMENTS,
+  DAILY_GOAL,
+  MILESTONE_1,
+  DEFAULT_EXAM_DATE_KEY,
+  RECORD_DAY_MODAL_LAST_SHOWN_KEY,
+} from './constants';
 import { calculateCurrentStreak, getAchievementStatus, dateKeyFromDate, getHistoryColor, PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS, publicAsset, graphicAsset, collectAllGraphicAssetUrls, preloadGraphicUrls, buildPracticeTestChartSeries } from './utils';
 import { Bubble, SeaCreature } from './components/OceanElements';
 import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
@@ -70,6 +80,30 @@ function computePracticeTestCreditFromRawInputs(questionsRaw: string, percentRaw
     if (!Number.isNaN(n) && n >= 0 && n <= 100) p = n;
   }
   return computePracticeTestQuestionsCredit(q, p);
+}
+
+function formatExamDateLabel(key: string): string {
+  const parts = key.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return key;
+  const [y, m, d] = parts;
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function clampDailyGoal(n: number): number {
+  if (!Number.isFinite(n)) return DAILY_GOAL;
+  return Math.min(9999, Math.max(1, Math.round(n)));
+}
+
+/** Local evening window 8pm–midnight (`hour` from Date#getHours). Warn if below half of today's goal. */
+function computeAutoWarningMode(hour: number, dailyQuestions: number, dailyGoalQuestions: number): boolean {
+  const goal = Math.max(1, dailyGoalQuestions);
+  const inEveningWindow = hour >= 20 && hour <= 23;
+  if (!inEveningWindow) return false;
+  return dailyQuestions < goal / 2;
 }
 
 export default function App() {
@@ -148,6 +182,23 @@ export default function App() {
   });
   const [showTestCodeInput, setShowTestCodeInput] = useState(false);
   const [testCodeInput, setTestCodeInput] = useState("");
+  const [examDateKey, setExamDateKey] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_EXAM_DATE_KEY;
+    const saved = localStorage.getItem('examDateKey');
+    return saved && /^\d{4}-\d{2}-\d{2}$/.test(saved) ? saved : DEFAULT_EXAM_DATE_KEY;
+  });
+  const [dailyGoalQuestions, setDailyGoalQuestions] = useState(() => {
+    if (typeof window === 'undefined') return DAILY_GOAL;
+    const saved = localStorage.getItem('dailyGoalQuestions');
+    const n = saved ? parseInt(saved, 10) : DAILY_GOAL;
+    return clampDailyGoal(n);
+  });
+  const [editingExamDate, setEditingExamDate] = useState(false);
+  const [editingDailyGoal, setEditingDailyGoal] = useState(false);
+  const [adminSleepModeForceOn, setAdminSleepModeForceOn] = useState(() => {
+    return typeof window !== 'undefined' && localStorage.getItem('adminSleepModeForceOn') === 'true';
+  });
+  const adminCodeInputRef = useRef<HTMLInputElement>(null);
   const [practiceTestCompletionDates, setPracticeTestCompletionDates] = useState<Record<string, true>>(() => {
     if (typeof window === 'undefined') return {};
     const savedCompletionDates = localStorage.getItem('practiceTestCompletionDates');
@@ -230,6 +281,8 @@ export default function App() {
     dateKey: string;
     testNumber: number;
     draft: string;
+    draftQuestions: string;
+    draftPercent: string;
     isLatest: boolean;
     hadScore: boolean;
   } | null>(null);
@@ -307,6 +360,17 @@ export default function App() {
     }
   }, []);
 
+  /** Restore real clock + automatic warning/sleep behavior when leaving admin. */
+  const exitAdminMode = useCallback(() => {
+    setIsTestMode(false);
+    setSimulatedTime(null);
+    setAdminSleepModeForceOn(false);
+    setShowTestCodeInput(false);
+    setTestCodeInput('');
+    const hours = new Date().getHours();
+    setIsWarningMode(computeAutoWarningMode(hours, dailyQuestions, dailyGoalQuestions));
+  }, [dailyQuestions, dailyGoalQuestions]);
+
   const applyProgressFromCloud = useCallback((p: UserProgressV1) => {
     historyRef.current = p.history;
     setDailyQuestions(p.dailyQuestions);
@@ -323,6 +387,8 @@ export default function App() {
     setPracticeTestQuestionCounts(p.practiceTestQuestionCounts);
     setPracticeTestPercents(p.practiceTestPercents);
     setLastAchievedIds(p.lastAchievedIds);
+    setExamDateKey(p.examDateKey);
+    setDailyGoalQuestions(clampDailyGoal(p.dailyGoalQuestions));
     if (typeof localStorage !== 'undefined') {
       if (p.recordDayModalLastShown) {
         localStorage.setItem(RECORD_DAY_MODAL_LAST_SHOWN_KEY, p.recordDayModalLastShown);
@@ -349,6 +415,8 @@ export default function App() {
         practiceTestQuestionCounts,
         practiceTestPercents,
         lastAchievedIds,
+        examDateKey,
+        dailyGoalQuestions,
       }),
     [
       dailyQuestions,
@@ -365,6 +433,8 @@ export default function App() {
       practiceTestQuestionCounts,
       practiceTestPercents,
       lastAchievedIds,
+      examDateKey,
+      dailyGoalQuestions,
     ]
   );
 
@@ -580,26 +650,20 @@ export default function App() {
     }
   };
 
-  const isSleepMode = useMemo(() => {
+  const naturalSleepMode = useMemo(() => {
     const hours = effectiveTime.getHours();
     return hours >= 0 && hours < 4;
   }, [effectiveTime]);
 
+  const isSleepMode = useMemo(() => {
+    if (isTestMode && adminSleepModeForceOn) return true;
+    return naturalSleepMode;
+  }, [isTestMode, adminSleepModeForceOn, naturalSleepMode]);
+
   useEffect(() => {
-    const checkWarningMode = () => {
-      const hours = effectiveTime.getHours();
-      
-      // After 6pm, if questions <= 80, turn ON. If > 80, turn OFF.
-      if (hours >= 18) {
-        if (dailyQuestions <= 80) {
-          setIsWarningMode(true);
-        } else {
-          setIsWarningMode(false);
-        }
-      }
-    };
-    checkWarningMode();
-  }, [dailyQuestions, effectiveTime]);
+    const hours = effectiveTime.getHours();
+    setIsWarningMode(computeAutoWarningMode(hours, dailyQuestions, dailyGoalQuestions));
+  }, [dailyQuestions, dailyGoalQuestions, effectiveTime]);
 
   useEffect(() => {
     localStorage.setItem('isWarningMode', isWarningMode.toString());
@@ -608,6 +672,31 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('selectedVariants', JSON.stringify(selectedVariants));
   }, [selectedVariants]);
+
+  useEffect(() => {
+    localStorage.setItem('examDateKey', examDateKey);
+  }, [examDateKey]);
+
+  useEffect(() => {
+    localStorage.setItem('dailyGoalQuestions', dailyGoalQuestions.toString());
+  }, [dailyGoalQuestions]);
+
+  useEffect(() => {
+    localStorage.setItem('adminSleepModeForceOn', adminSleepModeForceOn.toString());
+  }, [adminSleepModeForceOn]);
+
+  useEffect(() => {
+    if (!showSettingsModal || !showTestCodeInput || isTestMode) return;
+    requestAnimationFrame(() => {
+      adminCodeInputRef.current?.focus();
+    });
+  }, [showSettingsModal, showTestCodeInput, isTestMode]);
+
+  useEffect(() => {
+    if (showSettingsModal) return;
+    setEditingExamDate(false);
+    setEditingDailyGoal(false);
+  }, [showSettingsModal]);
 
   // --- Derived State ---
   const currentLevelIndex = useMemo(() => {
@@ -638,7 +727,12 @@ export default function App() {
     : defaultVariant;
 
 
-  const daysUntilExam = Math.ceil((EXAM_DATE.getTime() - effectiveTime.getTime()) / (1000 * 60 * 60 * 24));
+  const examCalendarDate = useMemo(() => {
+    const [y, m, d] = examDateKey.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }, [examDateKey]);
+
+  const daysUntilExam = Math.ceil((examCalendarDate.getTime() - effectiveTime.getTime()) / (1000 * 60 * 60 * 24));
   const modalPanelSizeClass = 'w-[92vw] sm:w-[86vw] lg:w-[74vw] max-w-[44rem] max-h-[90dvh]';
 
   // --- Effects ---
@@ -757,9 +851,8 @@ export default function App() {
       Boolean(selectedAchievement);
     if (!isAnyModalOpen) return;
 
-    // When any modal opens, reset viewport and modal scrollers to the top.
+    // When any modal opens, scroll modal panels to top; keep the main page scroll position unchanged.
     requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
       document.querySelectorAll<HTMLElement>('[data-modal-scroll="true"]').forEach((el) => {
         el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
       });
@@ -796,13 +889,14 @@ export default function App() {
       brokeDayRecord &&
       typeof window !== 'undefined' &&
       localStorage.getItem(RECORD_DAY_MODAL_LAST_SHOWN_KEY) !== todayStrForRecord;
-    const hitDailyGoal = newDaily >= DAILY_GOAL && dailyQuestions < DAILY_GOAL;
+    const hitDailyGoal =
+      newDaily >= dailyGoalQuestions && dailyQuestions < dailyGoalQuestions;
     
     // Play interaction sounds
     if (!isMuted && amount !== 0) {
       let soundPath = amount > 0 ? publicAsset('assets/bubble_up.mp3') : publicAsset('assets/bubble_down.mp3');
       
-      // Special sound for reaching daily goal (180)
+      // Special sound for reaching daily goal
       if (hitDailyGoal && amount > 0) {
         soundPath = publicAsset('assets/fireworks.mp3');
       } else if (canShowRecordDayModal && amount > 0) {
@@ -975,7 +1069,13 @@ export default function App() {
     setHistory({});
     setLastAchievedIds(['plankton']);
     setIsTestMode(false);
+    setSimulatedTime(null);
     setIsWarningMode(false);
+    setExamDateKey(DEFAULT_EXAM_DATE_KEY);
+    setDailyGoalQuestions(DAILY_GOAL);
+    setAdminSleepModeForceOn(false);
+    setEditingExamDate(false);
+    setEditingDailyGoal(false);
 
     localStorage.clear();
     localStorage.setItem('lastAchievedIds', JSON.stringify(['plankton']));
@@ -1266,20 +1366,34 @@ export default function App() {
   };
 
   const handlePracticeChartPress = useCallback((payload: PracticeTestChartPress) => {
+    const dk = payload.dateKey;
+    const qV = practiceTestQuestionCounts[dk];
+    const pV = practiceTestPercents[dk];
     setPracticeScoreSpotlight({
-      dateKey: payload.dateKey,
+      dateKey: dk,
       testNumber: payload.testNumber,
       draft: payload.score !== null ? String(payload.score) : '',
+      draftQuestions: qV !== undefined ? String(qV) : '',
+      draftPercent: pV !== undefined ? String(pV) : '',
       isLatest: payload.isLatest,
       hadScore: payload.score !== null,
     });
-  }, []);
+  }, [practiceTestQuestionCounts, practiceTestPercents]);
 
   const dismissPracticeScoreSpotlight = useCallback(() => setPracticeScoreSpotlight(null), []);
 
   const savePracticeScoreSpotlight = () => {
     if (!practiceScoreSpotlight) return;
-    applyPracticeTestScoreForDate(practiceScoreSpotlight.dateKey, practiceScoreSpotlight.draft.trim());
+    if (!isTestMode && practiceScoreSpotlight.hadScore) return;
+    const dk = practiceScoreSpotlight.dateKey;
+    applyPracticeTestScoreForDate(dk, practiceScoreSpotlight.draft.trim());
+    applyPracticeTestQuestionsForDate(dk, practiceScoreSpotlight.draftQuestions.trim());
+    applyPracticeTestPercentForDate(dk, practiceScoreSpotlight.draftPercent.trim());
+    syncPracticeTestCreditFromHistoryModalInputs(
+      dk,
+      practiceScoreSpotlight.draftQuestions,
+      practiceScoreSpotlight.draftPercent
+    );
     setPracticeScoreSpotlight(null);
   };
 
@@ -1719,12 +1833,12 @@ export default function App() {
               <div className="h-12 w-full bg-black/30 rounded-full overflow-hidden border-2 border-white/30 p-1.5 shadow-inner">
                 <motion.div 
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min(100, (dailyQuestions / DAILY_GOAL) * 100)}%` }}
+                  animate={{ width: `${Math.min(100, (dailyQuestions / Math.max(1, dailyGoalQuestions)) * 100)}%` }}
                   className={`h-full rounded-full ${isSleepMode ? 'bg-gradient-to-r from-blue-900 to-slate-900 shadow-[0_0_20px_rgba(96,165,250,0.6)]' : isWarningMode ? 'bg-gradient-to-r from-red-900 to-black shadow-[0_0_20px_rgba(220,38,38,0.6)]' : 'bg-gradient-to-r from-cyan-400 via-blue-400 to-blue-500 shadow-[0_0_20px_rgba(34,211,238,0.6)]'}`}
                 />
               </div>
               <div className="text-center text-sm font-black uppercase tracking-[0.3em] opacity-80">
-                Daily Goal: {DAILY_GOAL}
+                Daily Goal: {dailyGoalQuestions}
               </div>
             </div>
 
@@ -2021,6 +2135,7 @@ export default function App() {
                 const rows = [];
                 const startDate = new Date(2026, 3, 5); // April 5, 2026 (Local Time)
                 const todayStr = dateKeyFromDate(effectiveTime);
+                const historyTierMid = Math.max(1, Math.round(dailyGoalQuestions * (MILESTONE_1 / DAILY_GOAL)));
 
                 let cumulativeTotal = 0;
                 // Add up history before start date
@@ -2050,7 +2165,7 @@ export default function App() {
                     const count = history[dateKey] || 0;
                     const isToday = dateKey === todayStr;
                     const isFuture = date > effectiveTime;
-                    const isExamDay = dateKey === '2026-05-30';
+                    const isExamDay = dateKey === examDateKey;
                     const isTrophyOnLightBackground = count > 45;
 
                     cumulativeTotal += count;
@@ -2062,7 +2177,10 @@ export default function App() {
                       }
                     });
 
-                    const dynamicColor = !isSleepMode && !isWarningMode && !isExamDay && !(isFuture && !isTestMode) ? getHistoryColor(count) : null;
+                    const dynamicColor =
+                      !isSleepMode && !isWarningMode && !isExamDay && !(isFuture && !isTestMode)
+                        ? getHistoryColor(count, dailyGoalQuestions)
+                        : null;
 
                     weekCells.push(
                       <div 
@@ -2077,9 +2195,9 @@ export default function App() {
                                 ? '' 
                                 : isToday
                                   ? 'bg-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.3)]'
-                                  : count >= 180
+                                  : count >= dailyGoalQuestions
                                     ? 'bg-green-500 text-white'
-                                    : count >= 120
+                                    : count >= historyTierMid
                                       ? 'bg-yellow-500 text-white'
                                       : count > 0
                                         ? 'bg-red-500 text-white'
@@ -2377,14 +2495,26 @@ export default function App() {
                   <p className="text-xs font-black uppercase tracking-widest text-cyan-600 text-center mb-1">
                     Latest test (#{practiceScoreSpotlight.testNumber})
                   </p>
-                  <p className="text-sm text-gray-600 font-medium mb-6 text-center">
-                    Every practice test builds momentum — log or update your score below anytime.
-                  </p>
+                  {!isTestMode && practiceScoreSpotlight.hadScore ? (
+                    <p className="text-sm text-gray-600 font-medium mb-6 text-center">
+                      Here is the score you logged for your latest practice test.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-600 font-medium mb-6 text-center">
+                      {isTestMode
+                        ? 'Every practice test builds momentum — log or update your score below anytime.'
+                        : 'Every practice test builds momentum — log your score below when you are ready.'}
+                    </p>
+                  )}
                 </>
               ) : (
                 <>
                   <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
-                    {practiceScoreSpotlight.hadScore ? 'Edit practice test score' : 'Add practice test score'}
+                    {!practiceScoreSpotlight.hadScore
+                      ? 'Add practice test score'
+                      : isTestMode
+                        ? 'Edit practice test score'
+                        : 'Practice test score'}
                   </h3>
                   <p className="text-sm text-gray-600 font-medium mb-6">
                     Test #{practiceScoreSpotlight.testNumber}
@@ -2392,42 +2522,131 @@ export default function App() {
                 </>
               )}
 
-              <label
-                htmlFor="practice-score-spotlight-input"
-                className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1"
-              >
-                Score
-              </label>
-              <input
-                id="practice-score-spotlight-input"
-                type="text"
-                inputMode="decimal"
-                value={practiceScoreSpotlight.draft}
-                onChange={(e) =>
-                  setPracticeScoreSpotlight((prev) =>
-                    prev ? { ...prev, draft: e.target.value } : prev
-                  )
-                }
-                placeholder="e.g. 228"
-                className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400 mb-6"
-              />
+              {!isTestMode && practiceScoreSpotlight.hadScore ? (
+                <>
+                  <div
+                    className={`mb-6 space-y-5 text-blue-950 ${practiceScoreSpotlight.isLatest ? 'text-center' : ''}`}
+                  >
+                    <div>
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
+                        # Questions
+                      </span>
+                      <span className="block font-black text-3xl tabular-nums tracking-tight">
+                        {practiceScoreSpotlight.draftQuestions.trim() !== ''
+                          ? practiceScoreSpotlight.draftQuestions
+                          : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
+                        Score
+                      </span>
+                      <span className="block font-black text-3xl tabular-nums tracking-tight">
+                        {practiceScoreSpotlight.draft}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
+                        % Correct
+                      </span>
+                      <span className="block font-black text-3xl tabular-nums tracking-tight">
+                        {practiceScoreSpotlight.draftPercent.trim() !== ''
+                          ? `${practiceScoreSpotlight.draftPercent.trim()}%`
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={dismissPracticeScoreSpotlight}
+                    className="question-count-clay-btn w-full py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98]"
+                  >
+                    Close
+                  </button>
+                </>
+              ) : (
+                <>
+                  <label
+                    htmlFor="practice-score-spotlight-questions"
+                    className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1"
+                  >
+                    # Questions
+                  </label>
+                  <input
+                    id="practice-score-spotlight-questions"
+                    type="text"
+                    inputMode="numeric"
+                    value={practiceScoreSpotlight.draftQuestions}
+                    onChange={(e) =>
+                      setPracticeScoreSpotlight((prev) =>
+                        prev ? { ...prev, draftQuestions: e.target.value } : prev
+                      )
+                    }
+                    placeholder="—"
+                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400 mb-4"
+                  />
 
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={dismissPracticeScoreSpotlight}
-                  className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={savePracticeScoreSpotlight}
-                  className="question-count-clay-btn flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98]"
-                >
-                  Save
-                </button>
-              </div>
+                  <label
+                    htmlFor="practice-score-spotlight-input"
+                    className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1"
+                  >
+                    Score
+                  </label>
+                  <input
+                    id="practice-score-spotlight-input"
+                    type="text"
+                    inputMode="decimal"
+                    value={practiceScoreSpotlight.draft}
+                    onChange={(e) =>
+                      setPracticeScoreSpotlight((prev) =>
+                        prev ? { ...prev, draft: e.target.value } : prev
+                      )
+                    }
+                    placeholder="e.g. 228"
+                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400 mb-4"
+                  />
+
+                  <label
+                    htmlFor="practice-score-spotlight-percent"
+                    className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1"
+                  >
+                    <span>% Correct</span>
+                    <span className="normal-case tracking-normal text-[10px] text-gray-400 font-bold">
+                      (optional)
+                    </span>
+                  </label>
+                  <input
+                    id="practice-score-spotlight-percent"
+                    type="text"
+                    inputMode="decimal"
+                    value={practiceScoreSpotlight.draftPercent}
+                    onChange={(e) =>
+                      setPracticeScoreSpotlight((prev) =>
+                        prev ? { ...prev, draftPercent: e.target.value } : prev
+                      )
+                    }
+                    placeholder="—"
+                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400 mb-6"
+                  />
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={dismissPracticeScoreSpotlight}
+                      className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={savePracticeScoreSpotlight}
+                      className="question-count-clay-btn flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98]"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -2612,13 +2831,13 @@ export default function App() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
               className={`bg-white rounded-[3rem] w-full max-w-lg sm:max-w-xl lg:max-w-4xl xl:max-w-5xl max-h-[min(90dvh,900px)] text-center border-8 shadow-2xl relative flex flex-col min-h-0 overflow-hidden ${
-                selectedHistoryDate.count >= DAILY_GOAL ? 'border-green-400' : 'border-gray-300'
+                selectedHistoryDate.count >= dailyGoalQuestions ? 'border-green-400' : 'border-gray-300'
               }`}
             >
               <div className="flex flex-col min-h-0 flex-1 max-h-[inherit]">
                 <div className="flex shrink-0 items-center justify-between gap-4 p-6 sm:p-8 min-w-0">
                   <h2 className={`text-left text-lg sm:text-xl font-black uppercase tracking-tight break-words flex-1 min-w-0 ${
-                    selectedHistoryDate.count >= DAILY_GOAL ? 'text-green-900' : 'text-gray-900'
+                    selectedHistoryDate.count >= dailyGoalQuestions ? 'text-green-900' : 'text-gray-900'
                   }`}>
                     {selectedHistoryDate.date}
                   </h2>
@@ -2631,7 +2850,7 @@ export default function App() {
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-3 sm:px-6 pb-4 custom-scrollbar" data-modal-scroll="true">
-                  {selectedHistoryDate.count >= 180 && !selectedHistoryDate.isExamDay && (
+                  {selectedHistoryDate.count >= dailyGoalQuestions && !selectedHistoryDate.isExamDay && (
                     <div className="w-full max-w-full">
                       <img 
                         src={graphicAsset('salmonthumbsup')} 
@@ -2654,12 +2873,12 @@ export default function App() {
                   ) : (
                     <div className="flex flex-col items-center gap-4 pt-2 pb-2 min-w-0 max-w-full">
                       <div className={`text-6xl font-black ${
-                        selectedHistoryDate.count >= DAILY_GOAL ? 'text-green-600' : 'text-gray-600'
+                        selectedHistoryDate.count >= dailyGoalQuestions ? 'text-green-600' : 'text-gray-600'
                       }`}>
                         {selectedHistoryDate.count}
                       </div>
                       <div className={`${
-                        selectedHistoryDate.count >= DAILY_GOAL ? 'text-green-400' : 'text-gray-400'
+                        selectedHistoryDate.count >= dailyGoalQuestions ? 'text-green-400' : 'text-gray-400'
                       } text-sm font-black uppercase tracking-widest`}>
                         Questions Completed
                       </div>
@@ -2807,7 +3026,7 @@ export default function App() {
                   className={`question-count-clay-btn shrink-0 w-full py-4 rounded-2xl font-black text-xl active:scale-95 transition-all ${
                     selectedHistoryDate.isExamDay 
                       ? 'bg-yellow-500 hover:bg-yellow-600 text-white' 
-                      : selectedHistoryDate.count >= DAILY_GOAL
+                      : selectedHistoryDate.count >= dailyGoalQuestions
                         ? 'bg-green-600 hover:bg-green-700 text-white'
                         : 'bg-gray-600 hover:bg-gray-700 text-white'
                   }`}
@@ -3025,39 +3244,85 @@ export default function App() {
                 <div className="space-y-4">
                   <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">General</div>
                   <div className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Zap className="w-5 h-5 text-red-500" />
-                        <span className="font-black uppercase text-sm text-blue-900">Warning Mode</span>
-                      </div>
-                      <button 
-                        onClick={() => setIsWarningMode(!isWarningMode)}
-                        className={`w-12 h-6 rounded-full transition-colors relative ${isWarningMode ? 'bg-red-500' : 'bg-gray-300'}`}
-                      >
-                        <motion.div 
-                          animate={{ x: isWarningMode ? 24 : 4 }}
-                          className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                    <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Exam Date</p>
+                      {editingExamDate ? (
+                        <input
+                          type="date"
+                          value={examDateKey}
+                          onChange={(e) => setExamDateKey(e.target.value || DEFAULT_EXAM_DATE_KEY)}
+                          onBlur={() => setEditingExamDate(false)}
+                          className="w-full bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
                         />
-                      </button>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-blue-950 text-sm">{formatExamDateLabel(examDateKey)}</span>
+                          <button
+                            type="button"
+                            aria-label="Edit exam date"
+                            onClick={() => setEditingExamDate(true)}
+                            className="p-1.5 rounded-lg hover:bg-gray-200/80 text-blue-400 transition-colors"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </div>
 
+                    <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">
+                        Daily Goal (Questions Per Day)
+                      </p>
+                      {editingDailyGoal ? (
+                        <input
+                          type="number"
+                          min={1}
+                          max={9999}
+                          value={dailyGoalQuestions}
+                          onChange={(e) => {
+                            const n = parseInt(e.target.value, 10);
+                            if (!Number.isNaN(n)) setDailyGoalQuestions(clampDailyGoal(n));
+                          }}
+                          onBlur={() => setEditingDailyGoal(false)}
+                          className="w-full bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
+                        />
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-blue-950 text-sm">{dailyGoalQuestions} questions</span>
+                          <button
+                            type="button"
+                            aria-label="Edit daily goal"
+                            onClick={() => setEditingDailyGoal(true)}
+                            className="p-1.5 rounded-lg hover:bg-gray-200/80 text-blue-400 transition-colors"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">Admin</div>
+                  <div className="flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Zap className="w-5 h-5 text-yellow-500" />
                         <span className="font-black uppercase text-sm text-blue-900">Admin Mode</span>
                       </div>
-                      <button 
+                      <button
+                        type="button"
                         onClick={() => {
                           if (isTestMode) {
-                            setIsTestMode(false);
-                            setShowTestCodeInput(false);
+                            exitAdminMode();
                           } else {
                             setShowTestCodeInput(true);
                           }
                         }}
                         className={`w-12 h-6 rounded-full transition-colors relative ${isTestMode ? 'bg-green-500' : 'bg-gray-300'}`}
                       >
-                        <motion.div 
+                        <motion.div
                           animate={{ x: isTestMode ? 24 : 4 }}
                           className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
                         />
@@ -3068,17 +3333,18 @@ export default function App() {
                       <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
                         <p className="text-[10px] font-black uppercase text-blue-400">Enter Admin Code</p>
                         <div className="flex gap-2">
-                          <input 
+                          <input
+                            ref={adminCodeInputRef}
                             type="password"
                             maxLength={4}
                             value={testCodeInput}
                             onChange={(e) => {
                               const val = e.target.value;
                               setTestCodeInput(val);
-                              if (val === "6782") {
+                              if (val === '6782') {
                                 setIsTestMode(true);
                                 setShowTestCodeInput(false);
-                                setTestCodeInput("");
+                                setTestCodeInput('');
                               }
                             }}
                             placeholder="****"
@@ -3092,8 +3358,8 @@ export default function App() {
                       <div className="flex flex-col gap-2 p-4 bg-blue-50 rounded-2xl border-2 border-blue-100">
                         <div className="text-blue-900 font-black text-xs uppercase tracking-widest">Current Time (Simulated)</div>
                         <div className="flex items-center gap-3">
-                          <input 
-                            type="time" 
+                          <input
+                            type="time"
                             className="flex-1 bg-white border-2 border-blue-200 rounded-xl px-4 py-2 font-black text-blue-900 focus:outline-none focus:border-blue-400"
                             value={`${String(effectiveTime.getHours()).padStart(2, '0')}:${String(effectiveTime.getMinutes()).padStart(2, '0')}`}
                             onChange={(e) => {
@@ -3103,7 +3369,8 @@ export default function App() {
                               setSimulatedTime(newTime);
                             }}
                           />
-                          <button 
+                          <button
+                            type="button"
                             onClick={() => setSimulatedTime(null)}
                             className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-xs hover:bg-blue-700 transition-all"
                           >
@@ -3116,40 +3383,66 @@ export default function App() {
                     {isTestMode && (
                       <div className="flex flex-col gap-2 p-4 bg-purple-50 rounded-2xl border-2 border-purple-100">
                         <div className="text-purple-900 font-black text-xs uppercase tracking-widest">Simulate Past Streaks</div>
-                        <p className="text-xs text-purple-700 font-medium">Instantly adds 10 questions/day for the specified duration (ending today) and triggers the achievement!</p>
+                        <p className="text-xs text-purple-700 font-medium">
+                          Instantly adds 10 questions/day for the specified duration (ending today) and triggers the achievement!
+                        </p>
                         <div className="grid grid-cols-3 gap-2 mt-2">
-                          <button 
-                            onClick={() => { simulateStreak(3); setShowSettingsModal(false); }}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              simulateStreak(3);
+                              setShowSettingsModal(false);
+                            }}
                             className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                           >
                             3 Days
                           </button>
-                          <button 
-                            onClick={() => { simulateStreak(5); setShowSettingsModal(false); }}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              simulateStreak(5);
+                              setShowSettingsModal(false);
+                            }}
                             className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                           >
                             5 Days
                           </button>
-                          <button 
-                            onClick={() => { simulateStreak(10); setShowSettingsModal(false); }}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              simulateStreak(10);
+                              setShowSettingsModal(false);
+                            }}
                             className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                           >
                             10 Days
                           </button>
-                          <button 
-                            onClick={() => { simulateStreak(20); setShowSettingsModal(false); }}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              simulateStreak(20);
+                              setShowSettingsModal(false);
+                            }}
                             className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                           >
                             20 Days
                           </button>
-                          <button 
-                            onClick={() => { simulateStreak(30); setShowSettingsModal(false); }}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              simulateStreak(30);
+                              setShowSettingsModal(false);
+                            }}
                             className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                           >
                             30 Days
                           </button>
-                          <button 
-                            onClick={() => { simulateStreak(40); setShowSettingsModal(false); }}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              simulateStreak(40);
+                              setShowSettingsModal(false);
+                            }}
                             className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                           >
                             40 Days
@@ -3157,9 +3450,53 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                  </div>
 
-                  {/* Daily mission resets automatically via date-based completion */}
+                    {isTestMode && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Zap className="w-5 h-5 text-red-500" />
+                          <span className="font-black uppercase text-sm text-blue-900">Warning Mode</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsWarningMode(!isWarningMode)}
+                          className={`w-12 h-6 rounded-full transition-colors relative ${isWarningMode ? 'bg-red-500' : 'bg-gray-300'}`}
+                        >
+                          <motion.div
+                            animate={{ x: isWarningMode ? 24 : 4 }}
+                            className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                          />
+                        </button>
+                      </div>
+                    )}
+
+                    {isTestMode && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Zap className="w-5 h-5 text-slate-500 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="font-black uppercase text-sm text-blue-900 block">Sleep Mode (test)</span>
+                            <span className="text-[10px] font-medium text-gray-500 normal-case tracking-normal">
+                              Force Sleep Mode on for UI preview (ignores time of day).
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setAdminSleepModeForceOn(!adminSleepModeForceOn)}
+                          className={`w-12 h-6 shrink-0 rounded-full transition-colors relative ${adminSleepModeForceOn ? 'bg-indigo-500' : 'bg-gray-300'}`}
+                        >
+                          <motion.div
+                            animate={{ x: adminSleepModeForceOn ? 24 : 4 }}
+                            className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                          />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Daily mission resets automatically via date-based completion */}
 
                   {isTestMode && (
                     <>
@@ -3201,7 +3538,6 @@ export default function App() {
                       </p>
                     </>
                   )}
-                </div>
 
                 <button 
                   onClick={() => setShowSettingsModal(false)}

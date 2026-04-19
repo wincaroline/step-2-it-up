@@ -48,10 +48,11 @@ export function dateKeyFromDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function getHistoryColor(count: number): string {
-  const halfGoal = DAILY_GOAL / 2;
+export function getHistoryColor(count: number, dailyGoal: number = DAILY_GOAL): string {
+  const goal = dailyGoal > 0 ? dailyGoal : DAILY_GOAL;
+  const halfGoal = goal / 2;
   if (count === 0) return 'rgb(255, 0, 0)';
-  if (count >= DAILY_GOAL) return 'rgb(0, 255, 0)';
+  if (count >= goal) return 'rgb(0, 255, 0)';
 
   if (count <= halfGoal) {
     const ratio = count / halfGoal;
