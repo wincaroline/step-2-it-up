@@ -3017,7 +3017,7 @@ export default function App() {
                       className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
                     >
                       <LogIn className="w-4 h-4 shrink-0" />
-                      {authActionPending ? 'Opening Google…' : 'Continue with Google'}
+                      {authActionPending ? 'Opening Google…' : 'Log In with Google'}
                     </button>
                   )}
                 </div>

@@ -43,6 +43,12 @@
     color: #ef4444 !important;
     animation: header-time-warning-flash 0.85s ease-in-out infinite;
   }
+
+  /** Muted placeholders so hint text reads clearly below entered values (Firefox uses reduced opacity by default). */
+  input::placeholder {
+    color: rgb(156 163 175);
+    opacity: 1;
+  }
 }
 
 /**
