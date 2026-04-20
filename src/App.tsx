@@ -109,6 +109,7 @@ function accuracyBonusPointsFor(q: number, percent: number | undefined): number 
 
 /** Minimum time the feedback Submit button stays in its loading state (perceived progress). */
 const FEEDBACK_SUBMIT_MIN_SPINNER_MS = 800;
+const SIGN_OUT_MIN_SPINNER_MS = 800;
 
 /** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
 const NO_ACHIEVEMENT_CELEBRATION_IDS = new Set(['plankton']);
@@ -283,7 +284,6 @@ export default function App() {
   const [reportSubmitError, setReportSubmitError] = useState<string | null>(null);
   const feedbackSuccessToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showFeedbackSuccessToast, setShowFeedbackSuccessToast] = useState(false);
-  const [showGoogleLoginWarningModal, setShowGoogleLoginWarningModal] = useState(false);
   const [showRestorePreLoginDataModal, setShowRestorePreLoginDataModal] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
@@ -467,6 +467,7 @@ export default function App() {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
   const [authActionPending, setAuthActionPending] = useState(false);
+  const shouldOfferRestoreAfterSignOutRef = useRef(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -491,8 +492,11 @@ export default function App() {
   const handleSignOut = useCallback(async () => {
     setAuthActionPending(true);
     try {
+      shouldOfferRestoreAfterSignOutRef.current = true;
+      await new Promise((resolve) => window.setTimeout(resolve, SIGN_OUT_MIN_SPINNER_MS));
       await signOut(auth);
     } catch (err) {
+      shouldOfferRestoreAfterSignOutRef.current = false;
       console.error('Sign-out failed', err);
     } finally {
       setAuthActionPending(false);
@@ -627,27 +631,9 @@ export default function App() {
   }, [firebaseUser, hasMeaningfulLocalProgress]);
 
   const handleContinueWithGoogleClick = useCallback(() => {
-    if (!hasMeaningfulLocalProgress) {
-      void runGoogleSignInPopup();
-      return;
-    }
-    setShowGoogleLoginWarningModal(true);
-  }, [hasMeaningfulLocalProgress, runGoogleSignInPopup]);
-
-  const handleGoogleLoginSaveLocalThenSignIn = useCallback(() => {
-    overwriteCloudWithLocalFirstRef.current = true;
-    setShowGoogleLoginWarningModal(false);
+    overwriteCloudWithLocalFirstRef.current = false;
     void runGoogleSignInPopup();
   }, [runGoogleSignInPopup]);
-
-  const handleGoogleLoginClearLocalThenSignIn = useCallback(() => {
-    overwriteCloudWithLocalFirstRef.current = false;
-    setShowGoogleLoginWarningModal(false);
-    flushSync(() => {
-      applyProgressFromCloud(emptyUserProgress());
-    });
-    void runGoogleSignInPopup();
-  }, [applyProgressFromCloud, runGoogleSignInPopup]);
 
   const getMigrationPayload = useCallback(() => progressSnapshot, [progressSnapshot]);
 
@@ -668,8 +654,12 @@ export default function App() {
   useEffect(() => {
     const prevUid = previousAuthUidRef.current;
     const nextUid = firebaseUser?.uid ?? null;
-    if (prevUid && !nextUid && readPreLoginBackupProgress()) {
+    const signedOutNow = prevUid && !nextUid;
+    const explicitSignOutRestore =
+      !nextUid && shouldOfferRestoreAfterSignOutRef.current && Boolean(readPreLoginBackupProgress());
+    if ((signedOutNow || explicitSignOutRestore) && readPreLoginBackupProgress()) {
       setShowRestorePreLoginDataModal(true);
+      shouldOfferRestoreAfterSignOutRef.current = false;
     }
     previousAuthUidRef.current = nextUid;
   }, [firebaseUser, readPreLoginBackupProgress]);
@@ -1354,7 +1344,6 @@ export default function App() {
     const isAnyModalOpen =
       showGoalModal ||
       showRecordDayModal ||
-      showGoogleLoginWarningModal ||
       showRestorePreLoginDataModal ||
       showSettingsModal ||
       showReportFeedbackModal ||
@@ -1376,7 +1365,6 @@ export default function App() {
   }, [
     showGoalModal,
     showRecordDayModal,
-    showGoogleLoginWarningModal,
     showRestorePreLoginDataModal,
     showSettingsModal,
     showReportFeedbackModal,
@@ -1393,7 +1381,6 @@ export default function App() {
     const isAnyModalOpen =
       showGoalModal ||
       showRecordDayModal ||
-      showGoogleLoginWarningModal ||
       showRestorePreLoginDataModal ||
       showSettingsModal ||
       showReportFeedbackModal ||
@@ -1416,7 +1403,6 @@ export default function App() {
   }, [
     showGoalModal,
     showRecordDayModal,
-    showGoogleLoginWarningModal,
     showRestorePreLoginDataModal,
     showSettingsModal,
     showReportFeedbackModal,
@@ -3770,68 +3756,6 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* Google sign-in: local vs cloud conflict */}
-        {showGoogleLoginWarningModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
-          >
-            <motion.div
-              initial={{ scale: 0.94, y: 24 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.94, y: 24 }}
-              className={`bg-white rounded-[2rem] sm:rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-8 border-amber-400 shadow-[0_0_50px_rgba(0,0,0,0.35)] relative`}
-            >
-              <div className={`${modalBodyScrollClass} p-6 sm:p-8 space-y-5`} data-modal-scroll="true">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="font-sans text-blue-900 text-2xl sm:text-3xl font-extrabold leading-tight">
-                      Sign in with Google
-                    </h2>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowGoogleLoginWarningModal(false)}
-                    className="p-2 hover:bg-gray-100 rounded-full transition-colors shrink-0"
-                    aria-label="Close"
-                  >
-                    <X className="w-6 h-6 text-gray-400" />
-                  </button>
-                </div>
-
-                <p className="font-sans text-gray-700 text-base sm:text-lg leading-relaxed">
-                  You have data saved locally in your browser. Are you okay with overriding that when you sign in with
-                  Google?
-                </p>
-
-                <div className="flex flex-col gap-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleGoogleLoginClearLocalThenSignIn}
-                    disabled={authActionPending}
-                    className="question-count-clay-btn font-sans w-full bg-sky-600 border-2 border-sky-800 text-white py-4 px-4 sm:px-5 rounded-2xl font-bold text-base sm:text-lg tracking-normal leading-snug hover:bg-sky-700 transition-all disabled:opacity-50 text-left"
-                  >
-                    Yes, override local data
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleGoogleLoginSaveLocalThenSignIn}
-                    disabled={authActionPending}
-                    className="question-count-clay-btn font-sans flex flex-col items-stretch gap-1.5 w-full bg-white border-2 border-gray-300 py-4 px-4 sm:px-5 rounded-2xl font-bold tracking-normal hover:bg-gray-50 transition-all disabled:opacity-50 text-left"
-                  >
-                    <span className="text-base sm:text-lg text-red-700">No, save local data to Google</span>
-                    <span className="text-red-600 font-medium text-xs sm:text-sm tracking-normal">
-                      This will delete any existing data in your Google account.
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-
         {/* Post-logout local restore option */}
         {showRestorePreLoginDataModal && (
           <motion.div
@@ -4240,7 +4164,11 @@ export default function App() {
                         disabled={authActionPending}
                         className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-red-600 border-2 border-red-700 text-white py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-red-700 hover:border-red-800 transition-all disabled:opacity-50"
                       >
-                        <LogOut className="w-4 h-4 shrink-0" />
+                        {authActionPending ? (
+                          <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                        ) : (
+                          <LogOut className="w-4 h-4 shrink-0" />
+                        )}
                         {authActionPending ? 'Signing out…' : 'Sign out'}
                       </button>
                     </div>
