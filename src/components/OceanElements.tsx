@@ -132,11 +132,13 @@ export const SeaCreature = React.memo(function SeaCreature({
   delay,
   y,
   sleepMode = false,
+  warningMode = false,
 }: {
   graphic: string;
   delay: number;
   y: string;
   sleepMode?: boolean;
+  warningMode?: boolean;
 }) {
   const animSafeId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   /** `delay` from App is stagger in seconds — map to 0–1 and use negative animation-delay for phase (no frozen wait). */
@@ -145,16 +147,17 @@ export const SeaCreature = React.memo(function SeaCreature({
     if (delay <= 0) return 0;
     return Math.min(1, delay / maxStaggerSec);
   }, [delay]);
-  /** Sleep mode: slower drift forward; normal: 15–25s with wiggle/surge. */
+  /** Sleep mode: slower drift forward; warning mode: brisk pass; normal: 15–25s with wiggle/surge. */
   const duration = useMemo(() => {
     if (sleepMode) return 22 + Math.random() * 14;
+    if (warningMode) return 10 + Math.random() * 5;
     return 15 + Math.random() * 10;
-  }, [sleepMode]);
+  }, [sleepMode, warningMode]);
   const wiggleDuration = useMemo(() => 1.1 + Math.random() * 0.6, []);
   const wigglePause = useMemo(() => 1.8 + Math.random() * 1.6, []);
 
   const boostCycle = useMemo(() => {
-    if (sleepMode) return null;
+    if (sleepMode || warningMode) return null;
     const tw = wiggleDuration;
     const total = tw + SURGE_COAST_S + SURGE_DECAY_S + wigglePause;
     const tW = tw / total;
@@ -172,7 +175,7 @@ export const SeaCreature = React.memo(function SeaCreature({
       rotate: [0, -6, 6, -4, 4, 0, 0] as const,
       yBob: [0, -1, 1, -1, 1, 0, 0] as const,
     };
-  }, [sleepMode, wiggleDuration, wigglePause]);
+  }, [sleepMode, warningMode, wiggleDuration, wigglePause]);
 
   const fishImageSrc = useMemo(() => {
     const base = import.meta.env.BASE_URL;
@@ -180,10 +183,18 @@ export const SeaCreature = React.memo(function SeaCreature({
       const sleepy = [`${base}assets/graphic_sleepyfish1.png`, `${base}assets/graphic_sleepyfish2.png`];
       return sleepy[Math.abs(Math.round(delay)) % sleepy.length];
     }
+    if (warningMode) {
+      const scaryFish = [
+        `${base}assets/graphic_scaryfish1.png`,
+        `${base}assets/graphic_scaryfish2.png`,
+        `${base}assets/graphic_scaryfish3.png`,
+      ];
+      return scaryFish[Math.abs(Math.round(delay)) % scaryFish.length];
+    }
     const fishImages = [`${base}assets/graphic_bgfish1.png`, `${base}assets/graphic_bgfish2.png`, `${base}assets/graphic_bgfish3.png`];
     const index = Math.abs(Math.round(delay)) % fishImages.length;
     return fishImages[index];
-  }, [delay, sleepMode]);
+  }, [delay, sleepMode, warningMode]);
 
   /** Per-fish keyframes avoid Motion repeat / filter jank; timing matches boostCycle math. */
   const seaCreatureKeyframeCss = useMemo(() => {
@@ -230,12 +241,22 @@ export const SeaCreature = React.memo(function SeaCreature({
 
   return (
     <div className="sea-creature-fade absolute pointer-events-none z-0" style={{ ...swimVars, top: y }}>
-      <div className="sea-creature-swim inline-block" style={swimVars}>
+      <div className={`${warningMode ? 'sea-creature-swim-warning sea-creature-zigzag-warning' : 'sea-creature-swim'} inline-block`} style={swimVars}>
         {sleepMode ? (
           <img
             src={fishImageSrc}
             alt=""
             className="block h-[100px] w-auto object-contain opacity-35 grayscale brightness-125"
+          />
+        ) : warningMode ? (
+          <img
+            src={fishImageSrc}
+            alt=""
+            className="block h-[88px] w-auto object-contain opacity-35"
+            style={{
+              filter:
+                'drop-shadow(0 0 8px rgba(239, 68, 68, 0.78)) drop-shadow(0 0 16px rgba(220, 38, 38, 0.58))',
+            }}
           />
         ) : (
           <>

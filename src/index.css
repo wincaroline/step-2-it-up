@@ -96,6 +96,62 @@
     will-change: transform;
     backface-visibility: hidden;
   }
+
+  /** Warning mode fish: right-to-left movement. */
+  @keyframes sea-creature-swim-warning {
+    from {
+      transform: translate3d(120vw, 0, 0);
+    }
+    to {
+      transform: translate3d(-20vw, 0, 0);
+    }
+  }
+
+  /** Warning mode fish: larger, smoother zig-zag path. */
+  @keyframes sea-creature-zigzag-warning {
+    0% {
+      translate: 0 0;
+      rotate: 0deg;
+    }
+    25% {
+      translate: 0 -22px;
+      rotate: -2deg;
+    }
+    50% {
+      translate: 0 0;
+      rotate: 0deg;
+    }
+    75% {
+      translate: 0 22px;
+      rotate: 2deg;
+    }
+    100% {
+      translate: 0 0;
+      rotate: 0deg;
+    }
+  }
+
+  .sea-creature-swim-warning {
+    animation-name: sea-creature-swim-warning;
+    animation-duration: var(--sea-creature-duration, 12s);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-delay: calc(-1 * var(--sea-creature-phase, 0) * var(--sea-creature-duration, 12s));
+    animation-fill-mode: both;
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+
+  .sea-creature-zigzag-warning {
+    animation-name: sea-creature-swim-warning, sea-creature-zigzag-warning;
+    animation-duration: var(--sea-creature-duration, 12s), 3.2s;
+    animation-timing-function: linear, ease-in-out;
+    animation-iteration-count: infinite, infinite;
+    animation-delay:
+      calc(-1 * var(--sea-creature-phase, 0) * var(--sea-creature-duration, 12s)),
+      calc(-1 * var(--sea-creature-phase, 0) * 3.2s);
+    animation-fill-mode: both, both;
+  }
 }
 
 /**

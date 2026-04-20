@@ -2543,18 +2543,18 @@ export default function App() {
 
       {/* Fish scroll with page (not viewport-fixed); still behind UI via z-0 */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-0" aria-hidden>
-        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Sardine"} delay={0} y="20%" />
-        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Great White Shark" : "Barracuda"} delay={5} y="40%" />
-        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={10} y="15%" />
-        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Great White Shark" : "Krill"} delay={15} y="85%" />
-        <SeaCreature sleepMode={isSleepMode} graphic="Blue Whale" delay={20} y="60%" />
-        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Seahorse"} delay={25} y="30%" />
-        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Great White Shark" : "Sardine"} delay={7} y="70%" />
-        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={12} y="50%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Sardine"} delay={0} y="20%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Great White Shark" : "Barracuda"} delay={5} y="40%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={10} y="15%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Great White Shark" : "Krill"} delay={15} y="85%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic="Blue Whale" delay={20} y="60%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Seahorse"} delay={25} y="30%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Great White Shark" : "Sardine"} delay={7} y="70%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={12} y="50%" />
       </div>
 
       {/* --- Header --- */}
-      <header className="relative z-20 shrink-0 w-full px-6 py-4 flex justify-between items-center text-[#118AC0]">
+      <header className={`relative z-20 shrink-0 w-full px-6 py-4 flex justify-between items-center ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
           <div className="flex items-center gap-2 px-1 sm:px-4 py-1 sm:py-2">
             <Anchor className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -2579,7 +2579,7 @@ export default function App() {
           <div className="flex gap-2 sm:gap-3">
             <button 
               onClick={() => setIsMuted(!isMuted)}
-              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-[#118AC0]"
+              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
@@ -2592,14 +2592,14 @@ export default function App() {
                 setReportDescription('');
                 setShowReportFeedbackModal(true);
               }}
-              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-[#118AC0]"
+              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}
               title="Report feedback"
             >
               <Flag className="w-5 h-5" />
             </button>
             <button 
               onClick={() => setShowSettingsModal(true)}
-              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-[#118AC0]"
+              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}
               title="Settings"
             >
               <Settings className="w-5 h-5" />
@@ -3063,12 +3063,24 @@ export default function App() {
         <img
           aria-hidden
           src={`${import.meta.env.BASE_URL}assets/${
-            isSleepMode || isWarningMode ? 'graphic_oceanfloornight.png' : 'graphic_oceanfloor.png'
+            isWarningMode
+              ? 'graphic_oceanfloornight_red.png'
+              : isSleepMode
+                ? 'graphic_oceanfloornight.png'
+                : 'graphic_oceanfloor.png'
           }`}
           alt=""
           className={`block w-full h-auto max-w-none object-contain object-bottom select-none pointer-events-none ${
-            isSleepMode || isWarningMode ? 'opacity-70' : 'opacity-[0.85]'
+            isWarningMode ? 'opacity-50' : isSleepMode ? 'opacity-70' : 'opacity-[0.85]'
           }`}
+          style={
+            isWarningMode
+              ? {
+                  filter:
+                    'drop-shadow(0 0 8px rgba(248, 113, 113, 0.62)) drop-shadow(0 0 18px rgba(220, 38, 38, 0.48))',
+                }
+              : undefined
+          }
         />
       </div>
 
