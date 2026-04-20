@@ -49,6 +49,53 @@
     color: rgb(156 163 175);
     opacity: 1;
   }
+
+  /** Edge fade for background fish (opacity-only layer; keeps transforms on children independent). */
+  @keyframes sea-creature-fade {
+    0%,
+    4% {
+      opacity: 0;
+    }
+    6%,
+    94% {
+      opacity: 1;
+    }
+    96%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .sea-creature-fade {
+    animation-name: sea-creature-fade;
+    animation-duration: var(--sea-creature-duration, 20s);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    /** Negative delay = phase offset (moving immediately); positive delay would freeze fish until it elapses. */
+    animation-delay: calc(-1 * var(--sea-creature-phase, 0) * var(--sea-creature-duration, 20s));
+    animation-fill-mode: both;
+  }
+
+  /** Background fish: horizontal swim runs as one continuous CSS animation (no JS keyframe coupling). */
+  @keyframes sea-creature-swim {
+    from {
+      transform: translate3d(-20vw, 0, 0);
+    }
+    to {
+      transform: translate3d(120vw, 0, 0);
+    }
+  }
+
+  .sea-creature-swim {
+    animation-name: sea-creature-swim;
+    animation-duration: var(--sea-creature-duration, 20s);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-delay: calc(-1 * var(--sea-creature-phase, 0) * var(--sea-creature-duration, 20s));
+    animation-fill-mode: both;
+    will-change: transform;
+    backface-visibility: hidden;
+  }
 }
 
 /**

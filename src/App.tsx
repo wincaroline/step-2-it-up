@@ -66,8 +66,7 @@ import {
   streakFlameVariantFromCount,
   streakStatNumberColorFromVariant,
 } from './utils';
-import { Bubble, SeaCreature } from './components/OceanElements';
-import { SeaweedGraphic, CoralGraphic } from './components/Graphics';
+import { Bubble, BUBBLE_COUNT_SLEEP, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
 import { QuestionButtons } from './components/QuestionButtons';
@@ -2498,11 +2497,19 @@ export default function App() {
   return (
     <div className={`min-h-screen flex flex-col ${
       isSleepMode 
-        ? 'bg-gradient-to-b from-[#1a2a3a] via-[#101820] to-[#080c10] sleep-mode' 
+        ? 'bg-gradient-to-b from-[#01366A] via-[#112B59] to-[#051933] sleep-mode' 
         : isWarningMode 
           ? 'bg-[linear-gradient(180deg,#2a0a0a_0%,#100606_16%,#050505_32%,#060608_74%,#050818_100%)] warning-mode' 
-          : 'bg-[linear-gradient(180deg,#AADFDF_0px,#96D4D4_120px,#7ec9e0_240px,#2a7eb8_22%,#154a78_52%,#0c2048_78%,#050818_100%)] font-sans'
+          : 'bg-[linear-gradient(180deg,#21A8DF_0%,#0576AA_52%,#18415F_100%)] font-sans'
     } text-white overflow-x-hidden relative transition-colors duration-1000`}>
+      <motion.img
+        aria-hidden
+        src={`${import.meta.env.BASE_URL}assets/${isSleepMode ? 'graphic_oceantopnight.png' : 'graphic_oceantop.png'}`}
+        alt=""
+        className="absolute top-0 left-0 w-screen h-auto max-w-none object-contain object-top select-none pointer-events-none z-[5]"
+        animate={{ y: [0, -6, 0, 6, 0] }}
+        transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+      />
       {/* --- Background Elements --- */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         {!isWarningMode && !isSleepMode && (
@@ -2514,34 +2521,38 @@ export default function App() {
                 'radial-gradient(ellipse 130% 50% at 50% -5%, rgba(255,255,255,0.28), transparent 55%)',
                 'radial-gradient(ellipse 70% 45% at 12% 25%, rgba(255,255,255,0.12), transparent 50%)',
                 'radial-gradient(ellipse 60% 40% at 88% 30%, rgba(255,255,255,0.1), transparent 48%)',
-                'repeating-linear-gradient(178deg, transparent 0px, transparent 42px, rgba(255,255,255,0.05) 42px, rgba(255,255,255,0.05) 43px)',
-                'repeating-linear-gradient(182deg, transparent 0px, transparent 58px, rgba(0,28,64,0.08) 58px, rgba(0,28,64,0.08) 59px)',
-                'repeating-linear-gradient(95deg, transparent 0px, transparent 120px, rgba(255,255,255,0.025) 120px, rgba(255,255,255,0.025) 122px)',
               ].join(', '),
             }}
           />
         )}
-        {!isWarningMode && !isSleepMode && [...Array(40)].map((_, i) => (
-          <Bubble key={`bubble-${i}`} delay={i * 0.3} size={4 + Math.random() * 20} />
-        ))}
-        {isSleepMode && [...Array(20)].map((_, i) => (
-          <div key={`sleep-${i}`} className="absolute rounded-full bg-blue-400/10 animate-pulse" style={{ width: 10 + Math.random() * 50, height: 10 + Math.random() * 50, left: Math.random() * 100 + '%', top: Math.random() * 100 + '%' }} />
-        ))}
+        {!isWarningMode &&
+          [...Array(isSleepMode ? BUBBLE_COUNT_SLEEP : 40)].map((_, i) => (
+            <Bubble
+              key={`bubble-${i}`}
+              sleepMode={isSleepMode}
+              staggerIndex={i}
+              bubbleCount={isSleepMode ? BUBBLE_COUNT_SLEEP : 40}
+            />
+          ))}
         {isWarningMode && !isSleepMode && [...Array(20)].map((_, i) => (
           <div key={`warning-${i}`} className="absolute rounded-full bg-red-900/20 animate-pulse" style={{ width: 10 + Math.random() * 50, height: 10 + Math.random() * 50, left: Math.random() * 100 + '%', top: Math.random() * 100 + '%' }} />
         ))}
-        <SeaCreature graphic={isSleepMode ? "Sea Snail" : isWarningMode ? "Barracuda" : "Sardine"} delay={0} y="20%" />
-        <SeaCreature graphic={isSleepMode ? "Sea Snail" : isWarningMode ? "Great White Shark" : "Barracuda"} delay={5} y="40%" />
-        <SeaCreature graphic={isSleepMode ? "Sea Snail" : isWarningMode ? "Barracuda" : "Flying Fish"} delay={10} y="15%" />
-        <SeaCreature graphic={isSleepMode ? "Sea Snail" : isWarningMode ? "Great White Shark" : "Krill"} delay={15} y="85%" />
-        <SeaCreature graphic={isSleepMode ? "Blue Whale" : isWarningMode ? "Blue Whale" : "Blue Whale"} delay={20} y="60%" />
-        <SeaCreature graphic={isSleepMode ? "Sea Snail" : isWarningMode ? "Barracuda" : "Seahorse"} delay={25} y="30%" />
-        <SeaCreature graphic={isSleepMode ? "Sea Snail" : isWarningMode ? "Great White Shark" : "Sardine"} delay={7} y="70%" />
-        <SeaCreature graphic={isSleepMode ? "Sea Snail" : isWarningMode ? "Barracuda" : "Flying Fish"} delay={12} y="50%" />
+      </div>
+
+      {/* Fish scroll with page (not viewport-fixed); still behind UI via z-0 */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0" aria-hidden>
+        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Sardine"} delay={0} y="20%" />
+        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Great White Shark" : "Barracuda"} delay={5} y="40%" />
+        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={10} y="15%" />
+        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Great White Shark" : "Krill"} delay={15} y="85%" />
+        <SeaCreature sleepMode={isSleepMode} graphic="Blue Whale" delay={20} y="60%" />
+        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Seahorse"} delay={25} y="30%" />
+        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Great White Shark" : "Sardine"} delay={7} y="70%" />
+        <SeaCreature sleepMode={isSleepMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={12} y="50%" />
       </div>
 
       {/* --- Header --- */}
-      <header className="relative z-20 shrink-0 w-full px-6 py-4 flex justify-between items-center bg-white/5 backdrop-blur-md border-b border-white/10 text-white">
+      <header className="relative z-20 shrink-0 w-full px-6 py-4 flex justify-between items-center text-[#118AC0]">
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
           <div className="flex items-center gap-2 px-1 sm:px-4 py-1 sm:py-2">
             <Anchor className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -2566,7 +2577,7 @@ export default function App() {
           <div className="flex gap-2 sm:gap-3">
             <button 
               onClick={() => setIsMuted(!isMuted)}
-              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-white"
+              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-[#118AC0]"
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
@@ -2579,14 +2590,14 @@ export default function App() {
                 setReportDescription('');
                 setShowReportFeedbackModal(true);
               }}
-              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-white"
+              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-[#118AC0]"
               title="Report feedback"
             >
               <Flag className="w-5 h-5" />
             </button>
             <button 
               onClick={() => setShowSettingsModal(true)}
-              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-white"
+              className="question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all text-[#118AC0]"
               title="Settings"
             >
               <Settings className="w-5 h-5" />
@@ -3045,26 +3056,14 @@ export default function App() {
 
       {/* Sea floor — end of page (scroll to see) */}
       <div
-        className={`relative z-10 w-full h-40 shrink-0 ${
-          isSleepMode
-            ? 'bg-gradient-to-t from-[#04060a] to-[#080c10]'
-            : isWarningMode
-              ? 'bg-gradient-to-t from-[#100404] via-[#0a0306] to-[#050818]'
-              : 'bg-gradient-to-t from-[#020308] via-[#030610] to-[#050818]'
-        } flex items-end justify-around px-4 overflow-hidden pointer-events-none`}
+        className="relative z-10 w-full shrink-0 overflow-hidden pointer-events-none"
       >
-        <div className="absolute inset-0 opacity-30 bg-[url('https://www.transparenttextures.com/patterns/sandpaper.png')] pointer-events-none" />
-        <SeaweedGraphic className="w-8 h-32 mb-0 opacity-80" />
-        <CoralGraphic className="w-12 h-12 mb-2 opacity-90" color={isSleepMode ? "#334155" : isWarningMode ? "#7f1d1d" : "#f87171"} />
-        <div className="text-4xl mb-4 animate-bounce">{isSleepMode ? "" : isWarningMode ? "" : ""}</div>
-        <SeaweedGraphic className="w-10 h-40 mb-0 opacity-70" />
-        <div className="text-5xl mb-2">{isSleepMode ? "" : isWarningMode ? "" : ""}</div>
-        <CoralGraphic className="w-16 h-16 mb-1 opacity-90" color={isSleepMode ? "#475569" : isWarningMode ? "#991b1b" : "#fb7185"} />
-        <SeaweedGraphic className="w-6 h-24 mb-0 opacity-80" />
-        <div className="text-4xl mb-6 animate-pulse">{isSleepMode ? "" : isWarningMode ? "" : ""}</div>
-        <CoralGraphic className="w-10 h-10 mb-3 opacity-90" color={isSleepMode ? "#1e293b" : isWarningMode ? "#b91c1c" : "#f472b6"} />
-        <SeaweedGraphic className="w-12 h-36 mb-0 opacity-60" />
-        <div className="text-3xl mb-2">{isSleepMode ? "" : isWarningMode ? "" : ""}</div>
+        <img
+          aria-hidden
+          src={`${import.meta.env.BASE_URL}assets/${isSleepMode ? 'graphic_oceanfloornight.png' : 'graphic_oceanfloor.png'}`}
+          alt=""
+          className={`block w-full h-auto max-w-none object-contain object-bottom select-none pointer-events-none ${isSleepMode ? 'opacity-70' : 'opacity-[0.85]'}`}
+        />
       </div>
 
       {/* --- Modals --- */}
