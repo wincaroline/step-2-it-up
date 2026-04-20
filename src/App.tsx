@@ -2502,14 +2502,16 @@ export default function App() {
           ? 'bg-[linear-gradient(180deg,#2a0a0a_0%,#100606_16%,#050505_32%,#060608_74%,#050818_100%)] warning-mode' 
           : 'bg-[linear-gradient(180deg,#21A8DF_0%,#0576AA_52%,#18415F_100%)] font-sans'
     } text-white overflow-x-hidden relative transition-colors duration-1000`}>
-      <motion.img
-        aria-hidden
-        src={`${import.meta.env.BASE_URL}assets/${isSleepMode ? 'graphic_oceantopnight.png' : 'graphic_oceantop.png'}`}
-        alt=""
-        className="absolute top-0 left-0 w-screen h-auto max-w-none object-contain object-top select-none pointer-events-none z-[5]"
-        animate={{ y: [0, -6, 0, 6, 0] }}
-        transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
-      />
+      {!isWarningMode && (
+        <motion.img
+          aria-hidden
+          src={`${import.meta.env.BASE_URL}assets/${isSleepMode ? 'graphic_oceantopnight.png' : 'graphic_oceantop.png'}`}
+          alt=""
+          className="absolute top-0 left-0 w-screen h-auto max-w-none object-contain object-top select-none pointer-events-none z-[5]"
+          animate={{ y: [0, -6, 0, 6, 0] }}
+          transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
       {/* --- Background Elements --- */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         {!isWarningMode && !isSleepMode && (
@@ -3060,9 +3062,13 @@ export default function App() {
       >
         <img
           aria-hidden
-          src={`${import.meta.env.BASE_URL}assets/${isSleepMode ? 'graphic_oceanfloornight.png' : 'graphic_oceanfloor.png'}`}
+          src={`${import.meta.env.BASE_URL}assets/${
+            isSleepMode || isWarningMode ? 'graphic_oceanfloornight.png' : 'graphic_oceanfloor.png'
+          }`}
           alt=""
-          className={`block w-full h-auto max-w-none object-contain object-bottom select-none pointer-events-none ${isSleepMode ? 'opacity-70' : 'opacity-[0.85]'}`}
+          className={`block w-full h-auto max-w-none object-contain object-bottom select-none pointer-events-none ${
+            isSleepMode || isWarningMode ? 'opacity-70' : 'opacity-[0.85]'
+          }`}
         />
       </div>
 
