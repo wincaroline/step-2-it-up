@@ -29,7 +29,12 @@ import {
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
 import { auth, db } from './firebase';
-import { buildProgressFromAppState, saveUserProgress, stableStringifyProgress } from './userProgressFirestore';
+import {
+  buildProgressFromAppState,
+  parseUserProgressDoc,
+  saveUserProgress,
+  stableStringifyProgress,
+} from './userProgressFirestore';
 import { submitFeedbackReport, type FeedbackReportCategory } from './feedbackFirestore';
 import { useFirestoreUserProgressListener } from './useFirestoreUserProgressListener';
 import { emptyUserProgress, type UserProgressV1 } from './userProgressSchema';
@@ -107,6 +112,7 @@ const FEEDBACK_SUBMIT_MIN_SPINNER_MS = 800;
 
 /** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
 const NO_ACHIEVEMENT_CELEBRATION_IDS = new Set(['plankton']);
+const PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY = 'preLoginProgressBackupV1';
 
 function achievementIdsForCelebration(newlyAchieved: Achievement[]): Achievement[] {
   return newlyAchieved.filter((a) => !NO_ACHIEVEMENT_CELEBRATION_IDS.has(a.id));
@@ -278,6 +284,7 @@ export default function App() {
   const feedbackSuccessToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showFeedbackSuccessToast, setShowFeedbackSuccessToast] = useState(false);
   const [showGoogleLoginWarningModal, setShowGoogleLoginWarningModal] = useState(false);
+  const [showRestorePreLoginDataModal, setShowRestorePreLoginDataModal] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
   const [isTestMode, setIsTestMode] = useState(() => {
@@ -581,18 +588,43 @@ export default function App() {
     [progressSnapshot]
   );
 
+  const readPreLoginBackupProgress = useCallback((): UserProgressV1 | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      const backupPayload =
+        parsed && typeof parsed === 'object' && 'progress' in parsed
+          ? (parsed as { progress?: unknown }).progress
+          : parsed;
+      return parseUserProgressDoc(backupPayload as Record<string, unknown>) ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const overwriteCloudWithLocalFirstRef = useRef(false);
+  const previousAuthUidRef = useRef<string | null>(null);
+  const progressSnapshotRef = useRef(progressSnapshot);
+  progressSnapshotRef.current = progressSnapshot;
 
   const runGoogleSignInPopup = useCallback(async () => {
     setAuthActionPending(true);
     try {
+      if (!firebaseUser && hasMeaningfulLocalProgress && typeof window !== 'undefined') {
+        localStorage.setItem(
+          PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY,
+          JSON.stringify({ savedAtMs: Date.now(), progress: progressSnapshotRef.current })
+        );
+      }
       await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (err) {
       console.error('Google sign-in failed', err);
     } finally {
       setAuthActionPending(false);
     }
-  }, []);
+  }, [firebaseUser, hasMeaningfulLocalProgress]);
 
   const handleContinueWithGoogleClick = useCallback(() => {
     if (!hasMeaningfulLocalProgress) {
@@ -619,9 +651,6 @@ export default function App() {
 
   const getMigrationPayload = useCallback(() => progressSnapshot, [progressSnapshot]);
 
-  const progressSnapshotRef = useRef(progressSnapshot);
-  progressSnapshotRef.current = progressSnapshot;
-
   const lastPushedProgressJsonRef = useRef('');
   const lastSeenServerTimeMsRef = useRef(0);
 
@@ -635,6 +664,34 @@ export default function App() {
       overwriteCloudWithLocalFirstRef.current = false;
     }
   }, [firebaseUser]);
+
+  useEffect(() => {
+    const prevUid = previousAuthUidRef.current;
+    const nextUid = firebaseUser?.uid ?? null;
+    if (prevUid && !nextUid && readPreLoginBackupProgress()) {
+      setShowRestorePreLoginDataModal(true);
+    }
+    previousAuthUidRef.current = nextUid;
+  }, [firebaseUser, readPreLoginBackupProgress]);
+
+  const handleRestorePreLoginData = useCallback(() => {
+    const backup = readPreLoginBackupProgress();
+    setShowRestorePreLoginDataModal(false);
+    if (!backup) return;
+    flushSync(() => {
+      applyProgressFromCloud(backup);
+    });
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY);
+    }
+  }, [applyProgressFromCloud, readPreLoginBackupProgress]);
+
+  const handleKeepSignedOutData = useCallback(() => {
+    setShowRestorePreLoginDataModal(false);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY);
+    }
+  }, []);
 
   const cloudFirestoreReady = useFirestoreUserProgressListener({
     uid: firebaseUser?.uid ?? null,
@@ -1298,6 +1355,7 @@ export default function App() {
       showGoalModal ||
       showRecordDayModal ||
       showGoogleLoginWarningModal ||
+      showRestorePreLoginDataModal ||
       showSettingsModal ||
       showReportFeedbackModal ||
       showImageViewer ||
@@ -1319,6 +1377,7 @@ export default function App() {
     showGoalModal,
     showRecordDayModal,
     showGoogleLoginWarningModal,
+    showRestorePreLoginDataModal,
     showSettingsModal,
     showReportFeedbackModal,
     showImageViewer,
@@ -1335,6 +1394,7 @@ export default function App() {
       showGoalModal ||
       showRecordDayModal ||
       showGoogleLoginWarningModal ||
+      showRestorePreLoginDataModal ||
       showSettingsModal ||
       showReportFeedbackModal ||
       showImageViewer ||
@@ -1357,6 +1417,7 @@ export default function App() {
     showGoalModal,
     showRecordDayModal,
     showGoogleLoginWarningModal,
+    showRestorePreLoginDataModal,
     showSettingsModal,
     showReportFeedbackModal,
     showImageViewer,
@@ -3764,6 +3825,63 @@ export default function App() {
                     <span className="text-red-600 font-medium text-xs sm:text-sm tracking-normal">
                       This will delete any existing data in your Google account.
                     </span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Post-logout local restore option */}
+        {showRestorePreLoginDataModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.94, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.94, y: 24 }}
+              className={`bg-white rounded-[2rem] sm:rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-8 border-cyan-400 shadow-[0_0_50px_rgba(0,0,0,0.35)] relative`}
+            >
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8 space-y-5`} data-modal-scroll="true">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="font-sans text-blue-900 text-2xl sm:text-3xl font-extrabold leading-tight">
+                      Restore your local data?
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleKeepSignedOutData}
+                    className="p-2 hover:bg-gray-100 rounded-full transition-colors shrink-0"
+                    aria-label="Close"
+                  >
+                    <X className="w-6 h-6 text-gray-400" />
+                  </button>
+                </div>
+
+                <p className="font-sans text-gray-700 text-base sm:text-lg leading-relaxed">
+                  Before you signed in, you had data saved locally in this browser. Do you want to restore that local
+                  data now?
+                </p>
+
+                <div className="flex flex-col gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleRestorePreLoginData}
+                    className="question-count-clay-btn font-sans w-full bg-cyan-600 border-2 border-cyan-800 text-white py-4 px-4 sm:px-5 rounded-2xl font-bold text-base sm:text-lg tracking-normal leading-snug hover:bg-cyan-700 transition-all text-left"
+                  >
+                    Yes, restore pre-login local data
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleKeepSignedOutData}
+                    className="question-count-clay-btn font-sans w-full bg-white border-2 border-gray-300 py-4 px-4 sm:px-5 rounded-2xl font-bold text-base sm:text-lg tracking-normal hover:bg-gray-50 transition-all text-left text-gray-800"
+                  >
+                    Keep current data
                   </button>
                 </div>
               </div>
