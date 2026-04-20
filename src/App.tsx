@@ -23,6 +23,7 @@ import {
   LogOut,
   Pencil,
   Flag,
+  Check,
 } from 'lucide-react';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
@@ -270,6 +271,8 @@ export default function App() {
   const [reportDescription, setReportDescription] = useState('');
   const [reportSubmitPending, setReportSubmitPending] = useState(false);
   const [reportSubmitError, setReportSubmitError] = useState<string | null>(null);
+  const feedbackSuccessToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showFeedbackSuccessToast, setShowFeedbackSuccessToast] = useState(false);
   const [showGoogleLoginWarningModal, setShowGoogleLoginWarningModal] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVariantModal, setShowVariantModal] = useState(false);
@@ -1361,6 +1364,12 @@ export default function App() {
     selectedHistoryDate?.dateKey,
     selectedAchievement?.id,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackSuccessToastTimeoutRef.current) clearTimeout(feedbackSuccessToastTimeoutRef.current);
+    };
+  }, []);
 
   // --- Handlers ---
   const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number, bonusPointsForAchievements?: number) => {
@@ -4183,6 +4192,14 @@ export default function App() {
                       setReportDescription('');
                       setReportCategory('bug');
                       setShowReportFeedbackModal(false);
+                      if (feedbackSuccessToastTimeoutRef.current) {
+                        clearTimeout(feedbackSuccessToastTimeoutRef.current);
+                      }
+                      setShowFeedbackSuccessToast(true);
+                      feedbackSuccessToastTimeoutRef.current = setTimeout(() => {
+                        setShowFeedbackSuccessToast(false);
+                        feedbackSuccessToastTimeoutRef.current = null;
+                      }, 4000);
                     } catch (err) {
                       setReportSubmitError(err instanceof Error ? err.message : 'Something went wrong.');
                     } finally {
@@ -4614,6 +4631,25 @@ export default function App() {
           authActionPending={authActionPending}
         />
       )}
+
+      <AnimatePresence>
+        {showFeedbackSuccessToast && (
+          <motion.div
+            role="status"
+            aria-live="polite"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+            className="fixed bottom-6 sm:bottom-8 left-1/2 z-[120] w-[min(92vw,22rem)] -translate-x-1/2 pointer-events-none"
+          >
+            <div className="flex items-center gap-3 rounded-2xl border-2 border-emerald-400/90 bg-emerald-600 px-5 py-3.5 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+              <Check className="h-6 w-6 shrink-0 text-emerald-100" strokeWidth={2.5} aria-hidden />
+              <span className="font-black text-sm uppercase tracking-wide leading-snug">Thanks — your feedback was sent.</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
