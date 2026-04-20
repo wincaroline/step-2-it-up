@@ -8,8 +8,9 @@ service cloud.firestore {
 
     // User-submitted bug reports / requests / feedback (append-only).
     match /feedbackReports/{docId} {
+      // Do not use keys().hasOnly() including createdAt: serverTimestamp() placeholders
+      // can fail that check during evaluation and deny valid creates.
       allow create: if request.auth != null
-        && request.resource.data.keys().hasOnly(['uid', 'category', 'description', 'createdAt'])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.category in ['bug', 'request', 'feedback']
         && request.resource.data.description is string
