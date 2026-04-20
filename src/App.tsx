@@ -24,6 +24,7 @@ import {
   Pencil,
   Flag,
   Check,
+  Loader2,
 } from 'lucide-react';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
@@ -100,6 +101,9 @@ function parseOptionalPercentRaw(percentRaw: string): number | undefined {
 function accuracyBonusPointsFor(q: number, percent: number | undefined): number {
   return percent === undefined ? 0 : Math.round((q * percent) / 100);
 }
+
+/** Minimum time the feedback Submit button stays in its loading state (perceived progress). */
+const FEEDBACK_SUBMIT_MIN_SPINNER_MS = 800;
 
 /** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
 const NO_ACHIEVEMENT_CELEBRATION_IDS = new Set(['plankton']);
@@ -4187,8 +4191,22 @@ export default function App() {
                     }
                     setReportSubmitPending(true);
                     setReportSubmitError(null);
+                    const submitStarted = performance.now();
+                    let submitErr: unknown = null;
                     try {
                       await submitFeedbackReport(db, firebaseUser.uid, reportCategory, trimmed);
+                    } catch (err) {
+                      submitErr = err;
+                    }
+                    const remaining = FEEDBACK_SUBMIT_MIN_SPINNER_MS - (performance.now() - submitStarted);
+                    if (remaining > 0) {
+                      await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+                    }
+                    if (submitErr != null) {
+                      setReportSubmitError(
+                        submitErr instanceof Error ? submitErr.message : 'Something went wrong.',
+                      );
+                    } else {
                       setReportDescription('');
                       setReportCategory('bug');
                       setShowReportFeedbackModal(false);
@@ -4200,11 +4218,8 @@ export default function App() {
                         setShowFeedbackSuccessToast(false);
                         feedbackSuccessToastTimeoutRef.current = null;
                       }, 4000);
-                    } catch (err) {
-                      setReportSubmitError(err instanceof Error ? err.message : 'Something went wrong.');
-                    } finally {
-                      setReportSubmitPending(false);
                     }
+                    setReportSubmitPending(false);
                   }}
                 >
                   <div className="space-y-2">
@@ -4269,14 +4284,22 @@ export default function App() {
                     </button>
                     <button
                       type="submit"
+                      aria-busy={reportSubmitPending}
                       disabled={
                         reportSubmitPending ||
                         !firebaseUser ||
                         reportDescription.trim().length === 0
                       }
-                      className="question-count-clay-btn flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-base transition-all disabled:opacity-50 disabled:pointer-events-none"
+                      className="question-count-clay-btn inline-flex flex-1 items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-base transition-all disabled:opacity-50 disabled:pointer-events-none"
                     >
-                      {reportSubmitPending ? 'Sending…' : 'Submit'}
+                      {reportSubmitPending ? (
+                        <>
+                          <Loader2 className="h-5 w-5 shrink-0 animate-spin" aria-hidden />
+                          <span>Sending…</span>
+                        </>
+                      ) : (
+                        'Submit'
+                      )}
                     </button>
                   </div>
                 </form>
