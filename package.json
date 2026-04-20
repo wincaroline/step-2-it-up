@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "deploy:firestore-rules": "firebase deploy --only firestore:rules"
+    "deploy:firestore-rules": "firebase deploy --only firestore:rules",
+    "functions:install": "npm --prefix functions install",
+    "deploy:functions": "npm --prefix functions run deploy"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
