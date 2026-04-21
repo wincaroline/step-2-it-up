@@ -4161,7 +4161,7 @@ export default function App() {
                   <motion.img
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    src="/assets/graphic_salmonthumbsup.webp"
+                    src={graphicAsset('salmonthumbsup')}
                     alt="Salmon thumbs up"
                     className="block h-full w-full object-cover object-center"
                     referrerPolicy="no-referrer"
