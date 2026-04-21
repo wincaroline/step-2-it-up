@@ -1,4 +1,13 @@
-import { useEffect, useState, useMemo, useRef, useCallback, type CSSProperties, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useMemo,
+  useRef,
+  useCallback,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
@@ -874,7 +883,8 @@ export default function App() {
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
 
-  useEffect(() => {
+  /** Run before `useEffect` so `dailyQuestions` is reset before any effect can write stale counts into `history[todayKey]`. */
+  useLayoutEffect(() => {
     const prev = prevCalendarDayKeyRef.current;
     if (prev === null) {
       prevCalendarDayKeyRef.current = todayKey;
@@ -1348,16 +1358,16 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('totalQuestions', totalQuestions.toString());
-    
-    // Update history for today (using local date string)
-    const todayStr = dateKeyFromDate(effectiveTime);
-    
-    setHistory(prev => {
-      const newHistory = { ...prev, [todayStr]: dailyQuestions };
+  }, [totalQuestions]);
+
+  /** Keep `history[today]` aligned with `dailyQuestions`; depends on calendar day + count only (see midnight layout effect). */
+  useEffect(() => {
+    setHistory((prev) => {
+      const newHistory = { ...prev, [todayKey]: dailyQuestions };
       localStorage.setItem('history', JSON.stringify(newHistory));
       return newHistory;
     });
-  }, [totalQuestions, currentLevelIndex, lastLevel, isMuted, lastAchievedIds]);
+  }, [dailyQuestions, todayKey]);
 
   useEffect(() => {
     localStorage.setItem('bonusPoints', bonusPoints.toString());
@@ -2864,9 +2874,7 @@ export default function App() {
                   </span>
                 )}
                 <div className={`w-full ${bonusPointsEarnedToday > 0 ? 'mt-4' : 'mt-3'}`}>
-                  {isTestMode && (
-                    <QuestionButtons onUpdate={addQuestions} isTestMode={isTestMode} isWarningMode={isWarningMode} isSleepMode={isSleepMode} />
-                  )}
+                  <QuestionButtons onUpdate={addQuestions} isTestMode={isTestMode} isWarningMode={isWarningMode} isSleepMode={isSleepMode} />
                 </div>
                 <button
                   type="button"
