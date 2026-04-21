@@ -31,10 +31,14 @@ function toDatetimeLocalValue(d: Date): string {
 }
 
 function parseDatetimeLocal(raw: string): Date | null {
-  const [datePart, timePart] = raw.split('T');
-  if (!datePart || !timePart) return null;
+  const trimmed = raw.trim();
+  const [datePart, timePartRaw] = trimmed.split('T');
+  if (!datePart || !timePartRaw) return null;
+  const timePart = timePartRaw.split('.')[0];
   const [y, mo, d] = datePart.split('-').map(Number);
-  const [h, m] = timePart.split(':').map(Number);
+  const parts = timePart.split(':').map(Number);
+  const h = parts[0];
+  const m = parts[1];
   if ([y, mo, d, h, m].some((x) => Number.isNaN(x))) return null;
   return new Date(y, mo - 1, d, h, m, 0, 0);
 }
@@ -270,6 +274,10 @@ export function SettingsModal({
                       value={toDatetimeLocalValue(effectiveTime)}
                       onChange={(e) => {
                         const parsed = parseDatetimeLocal(e.target.value);
+                        if (parsed) setSimulatedTime(parsed);
+                      }}
+                      onInput={(e) => {
+                        const parsed = parseDatetimeLocal((e.target as HTMLInputElement).value);
                         if (parsed) setSimulatedTime(parsed);
                       }}
                     />

@@ -532,6 +532,9 @@ export default function App() {
 
   const [simulatedTime, setSimulatedTime] = useState<Date | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  /** Read by the wall/sim clock interval so the effect stays mounted (stable tick); avoids resetting the timer every simulated second. */
+  const simulatedTimeRef = useRef<Date | null>(null);
+  simulatedTimeRef.current = simulatedTime;
 
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
@@ -886,18 +889,17 @@ export default function App() {
   }, [firebaseUser, cloudFirestoreReady, progressSnapshot]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (simulatedTime) {
-        // If simulated, we increment it by 1 second every second to keep it ticking
-        setSimulatedTime(prev => prev ? new Date(prev.getTime() + 1000) : null);
+    const timer = window.setInterval(() => {
+      if (simulatedTimeRef.current) {
+        setSimulatedTime((prev) => (prev ? new Date(prev.getTime() + 1000) : null));
       } else {
         setCurrentTime(new Date());
       }
     }, 1000);
-    return () => clearInterval(timer);
-  }, [simulatedTime]);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const effectiveTime = simulatedTime || currentTime;
+  const effectiveTime = simulatedTime ?? currentTime;
   const todayKey = dateKeyFromDate(effectiveTime);
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
@@ -1422,6 +1424,13 @@ export default function App() {
     localStorage.setItem('reviewPenaltyMultiplier', reviewPenaltyMultiplier.toString());
   }, [reviewPenaltyMultiplier]);
 
+  /** After the queue is cleared, the next incomplete streak starts at the base BP penalty multiplier (e.g. 3). */
+  useEffect(() => {
+    if (questionsToReviewToday === 0) {
+      setReviewPenaltyMultiplier(REVIEW_PENALTY_BASE_MULTIPLIER);
+    }
+  }, [questionsToReviewToday]);
+
   useEffect(() => {
     localStorage.setItem('totalQuestionsReviewed', totalQuestionsReviewed.toString());
   }, [totalQuestionsReviewed]);
@@ -1433,7 +1442,8 @@ export default function App() {
   }, []);
 
   /** Run before `useEffect` so `dailyQuestions` is reset before any effect can write stale counts into `history[todayKey]`.
-   * At local midnight (or simulated day jump): deduct BP for unanswered reviews, escalate multiplier on failure, reset countdown for the new day. */
+   * At local midnight (or simulated day jump): deduct BP for unanswered reviews, escalate multiplier on failure.
+   * Pending reviews carry into the new day until completed so the UI queue does not disappear at midnight. */
   useLayoutEffect(() => {
     const prevDayKey = prevCalendarDayKeyRef.current;
     if (prevDayKey === null) {
@@ -1457,7 +1467,7 @@ export default function App() {
 
     const countForDay = history[todayKey];
     setDailyQuestions(typeof countForDay === 'number' ? Math.max(0, countForDay) : 0);
-    setQuestionsToReviewToday(0);
+    setQuestionsToReviewToday(pendingReview);
   }, [todayKey, history, adjustBonusPointsForDay]);
 
   useEffect(() => {
@@ -2910,11 +2920,11 @@ export default function App() {
           <div
             className={`font-black text-xs sm:text-lg tracking-wider ${isWarningMode ? 'header-time-warning' : ''}`}
           >
-            {effectiveTime.toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              minute: '2-digit', 
-              hour12: true 
-            })} ET
+            {`${effectiveTime.toLocaleDateString('en-US', { month: 'short' })} ${effectiveTime.getDate()} ${effectiveTime.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+            })} ET`}
           </div>
           <div className="flex gap-2 sm:gap-3">
             <button
