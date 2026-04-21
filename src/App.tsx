@@ -1559,6 +1559,12 @@ export default function App() {
   const addQuestions = (amount: number, practiceTestsForAchievementCheck?: number, bonusPointsForAchievements?: number) => {
     const newDaily = Math.max(0, dailyQuestions + amount);
     const diff = newDaily - dailyQuestions;
+    const setRandomSillyMotivationForLine = () => {
+      const levelStats = SILLY_STATEMENTS[currentLevel.name];
+      const category = newDaily >= MILESTONE_1 ? 'high' : 'moderate';
+      const bucket = levelStats[category];
+      setGoalMessage(bucket[Math.floor(Math.random() * bucket.length)]);
+    };
     const todayStrForRecord = dateKeyFromDate(effectiveTime);
     const maxOnOtherDays = Math.max(
       0,
@@ -1592,16 +1598,12 @@ export default function App() {
       audio.play().catch(err => console.error("Audio play failed:", err));
     }
 
-    // Update Statement on +10
+    // Update Statement on +10 — never use HARD_ASS on the tap that completes the daily goal (Goal Reached modal).
     if (amount > 0) {
-      if (isWarningMode) {
-        const randomMsg = HARD_ASS_STATEMENTS[Math.floor(Math.random() * HARD_ASS_STATEMENTS.length)];
-        setGoalMessage(randomMsg);
+      if (isWarningMode && !hitDailyGoal) {
+        setGoalMessage(HARD_ASS_STATEMENTS[Math.floor(Math.random() * HARD_ASS_STATEMENTS.length)]);
       } else {
-        const levelStats = SILLY_STATEMENTS[currentLevel.name];
-        const category = newDaily >= MILESTONE_1 ? 'high' : 'moderate';
-        const randomMsg = levelStats[category][Math.floor(Math.random() * 10)];
-        setGoalMessage(randomMsg);
+        setRandomSillyMotivationForLine();
       }
     }
 
@@ -1620,6 +1622,11 @@ export default function App() {
     
     // Check for milestones directly in the click handler to satisfy browser audio requirements
     checkMilestones(newDaily, newTotal, history, practiceTestsForAchievementCheck, undefined, bonusPointsForAchievements);
+
+    // Level-up can overwrite `goalMessage` with warning-mode tough love — restore SILLY copy for Goal Reached.
+    if (hitDailyGoal && amount > 0) {
+      setRandomSillyMotivationForLine();
+    }
   };
 
   useEffect(() => {
@@ -1769,6 +1776,7 @@ export default function App() {
       reviewZeroHoldTimeoutRef.current = window.setTimeout(() => {
         setReviewZeroTransitionPhase(null);
         setShowReviewCompleteModal(true);
+        triggerFireworks();
         reviewZeroHoldTimeoutRef.current = null;
       }, 400);
     };
@@ -2698,6 +2706,93 @@ export default function App() {
     );
   }
 
+  const primaryModalEnterAction = useMemo<(() => void) | null>(() => {
+    if (showAchievementCelebration && selectedAchievement) {
+      return dismissAchievementView;
+    }
+    if (showGreatProgressModal && greatProgressSnapshot) {
+      return () => {
+        setShowGreatProgressModal(false);
+        setGreatProgressSnapshot(null);
+      };
+    }
+    if (showLogWinCelebrateModal && logWinCelebrate) {
+      return () => {
+        setShowLogWinCelebrateModal(false);
+        setLogWinCelebrate(null);
+      };
+    }
+    if (showReviewCompleteModal) {
+      return () => setShowReviewCompleteModal(false);
+    }
+    if (showPracticeTestEntryModal) {
+      return submitPracticeTestEntry;
+    }
+    if (showLogSetModal) {
+      return confirmLogSet;
+    }
+    if (showLogReviewModal) {
+      return confirmLogReview;
+    }
+    if (practiceScoreSpotlight) {
+      return !isTestMode && practiceScoreSpotlight.hadScore
+        ? dismissPracticeScoreSpotlight
+        : savePracticeScoreSpotlight;
+    }
+    if (showRestorePreLoginDataModal) {
+      return handleRestorePreLoginData;
+    }
+    if (showGoalModal) {
+      return () => setShowGoalModal(false);
+    }
+    if (showRecordDayModal) {
+      return () => setShowRecordDayModal(false);
+    }
+    return null;
+  }, [
+    showAchievementCelebration,
+    selectedAchievement,
+    dismissAchievementView,
+    showGreatProgressModal,
+    greatProgressSnapshot,
+    showLogWinCelebrateModal,
+    logWinCelebrate,
+    showReviewCompleteModal,
+    showPracticeTestEntryModal,
+    submitPracticeTestEntry,
+    showLogSetModal,
+    confirmLogSet,
+    showLogReviewModal,
+    confirmLogReview,
+    practiceScoreSpotlight,
+    isTestMode,
+    dismissPracticeScoreSpotlight,
+    savePracticeScoreSpotlight,
+    showRestorePreLoginDataModal,
+    handleRestorePreLoginData,
+    showGoalModal,
+    showRecordDayModal,
+  ]);
+
+  useEffect(() => {
+    if (!primaryModalEnterAction) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        if (target.closest('textarea,[contenteditable=""],[contenteditable="true"],[contenteditable]')) return;
+        if (target.closest('button,a,[role="button"]')) return;
+      }
+      event.preventDefault();
+      primaryModalEnterAction();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [primaryModalEnterAction]);
+
   return (
     <div className={`min-h-screen flex flex-col ${
       isSleepMode 
@@ -2806,7 +2901,7 @@ export default function App() {
       </header>
 
       {/* --- Main Content --- */}
-      <main className="relative z-10 flex-1 w-full max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 min-[600px]:grid-cols-[2fr_1fr] gap-8 items-start">
+      <main className="relative z-10 flex-1 w-full max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 min-[600px]:grid-cols-[1fr_1fr] gap-8 items-start">
         
         {/* Left Column: Progress & Actions */}
         <div className="flex flex-col gap-8">
@@ -2911,6 +3006,82 @@ export default function App() {
             </motion.section>
           )}
 
+          {/* Practice Test Reminder (Mobile, Incomplete = Above Level) */}
+          {!isPracticeTestMissionCompleteToday && (
+            <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 min-[600px]:hidden">
+              <div
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
+                  isPracticeTestMissionCompleteToday && isWarningMode
+                    ? 'bg-white/45'
+                    : isPracticeTestMissionCompleteToday
+                      ? 'bg-green-500/35'
+                      : isWarningMode
+                        ? 'bg-red-600/38'
+                        : 'bg-yellow-400/35'
+                }`}
+              />
+              <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+                isPracticeTestMissionCompleteToday && isWarningMode
+                  ? 'text-black'
+                  : isPracticeTestMissionCompleteToday
+                    ? 'text-white'
+                    : isWarningMode
+                      ? 'text-white'
+                      : 'text-black'
+              }`}>
+              <div className={`${
+                isPracticeTestMissionCompleteToday
+                  ? isWarningMode
+                    ? 'bg-green-600 text-white'
+                    : 'bg-white text-green-500'
+                  : 'bg-black text-white'
+              } p-3 rounded-2xl shadow-lg transition-colors`}>
+                {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
+              </div>
+              <div className="flex flex-col flex-1 text-center sm:text-left">
+                <span className="text-xs opacity-60 tracking-widest">
+                  {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
+                </span>
+                <span className={isPracticeTestMissionCompleteToday ? 'text-base' : ''}>
+                  {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : '1 Practice Test!'}
+                </span>
+                {isPracticeTestMissionCompleteToday && (
+                  <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
+                )}
+              </div>
+              <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+                {!isPracticeTestMissionCompleteToday && (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const wasAlreadyCompleted = Boolean(practiceTestCompletionDates[todayKey]);
+                      if (wasAlreadyCompleted) return;
+                      setPracticeTestEntryIntent('completed');
+                      setPracticeTestEntryQuestions('');
+                      setPracticeTestEntryScore('');
+                      setPracticeTestEntryPercent('');
+                      setShowPracticeTestEntryModal(true);
+                    }}
+                    className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                  >
+                    Completed
+                  </button>
+                )}
+                {isTestMode && isPracticeTestMissionCompleteToday && (
+                  <button
+                    type="button"
+                    onClick={removeTodayPracticeTestRecord}
+                    className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              </div>
+            </motion.div>
+          )}
+
           {/* Level Section (Mobile Reorder) */}
           <motion.div {...mainSectionLoadProps} className="min-[600px]:hidden">
             <LevelSection
@@ -2927,8 +3098,9 @@ export default function App() {
             />
           </motion.div>
 
-          {/* Practice Test Reminder */}
-          <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 min-[600px]:hidden">
+          {/* Practice Test Reminder (Mobile, Complete = Below Level) */}
+          {isPracticeTestMissionCompleteToday && (
+            <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 min-[600px]:hidden">
             <div
               aria-hidden
               className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
@@ -2999,7 +3171,8 @@ export default function App() {
               )}
             </div>
             </div>
-          </motion.div>
+            </motion.div>
+          )}
 
           {/* Footer Stats */}
           <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 space-y-6">
@@ -3217,18 +3390,19 @@ export default function App() {
             />
           </motion.div>
 
-          {/* History Section (Desktop Left Column) */}
-          <motion.section
-            {...mainSectionLoadProps}
-            className="section-panel-ocean-frost overflow-visible p-6 hidden min-[600px]:flex flex-col items-center gap-6"
-          >
-            <div className="flex items-center gap-3">
-              <Calendar className="w-6 h-6 text-yellow-300" />
-              <h2 className="text-2xl font-black text-white uppercase tracking-widest">History</h2>
-            </div>
-
-            <div className="w-full flex flex-col gap-8">{historyCalendarMonths}</div>
-          </motion.section>
+          {/* Achievements (desktop 2-column: bottom of left column) */}
+          <motion.div {...mainSectionLoadProps} className="hidden min-[600px]:block w-full">
+            <AchievementsSection 
+              totalQuestions={totalQuestions} 
+              bonusPoints={bonusPoints}
+              lastAchievedIds={lastAchievedIds}
+              totalPracticeTests={totalPracticeTests}
+              history={history}
+              effectiveTime={effectiveTime}
+              setSelectedAchievement={setSelectedAchievement} 
+              className="hidden min-[600px]:flex" 
+            />
+          </motion.div>
         </div>
 
         {/* Right Column: Level & Stats */}
@@ -3250,8 +3424,17 @@ export default function App() {
           )}
 
           {(displayQuestionsToReview > 0 || isReviewCountdownActive || reviewZeroTransitionPhase !== null) && (
-            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex w-full flex-col items-center justify-center text-center gap-4">
-              <div className="flex flex-col items-center text-center gap-3">
+            <motion.section
+              {...mainSectionLoadProps}
+              className="section-panel-ocean-frost relative overflow-hidden rounded-[3rem] p-6 hidden min-[600px]:flex w-full flex-col items-center justify-center text-center gap-4"
+            >
+              {isWarningMode && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 rounded-[3rem] bg-red-600/38"
+                />
+              )}
+              <div className="relative z-10 flex flex-col items-center text-center gap-3">
                 {reviewZeroTransitionPhase === null && (
                   <p
                     className={`text-6xl font-black tabular-nums leading-none drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)] ${
@@ -3282,7 +3465,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={openLogReviewModal}
-                className={`question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
+                className={`relative z-10 question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
                   isSleepMode
                     ? 'bg-slate-700/80 text-white hover:bg-slate-600'
                     : isWarningMode
@@ -3293,6 +3476,82 @@ export default function App() {
                 Log Review
               </button>
             </motion.section>
+          )}
+
+          {/* Practice Test Reminder (Desktop, Incomplete = Above Level) */}
+          {!isPracticeTestMissionCompleteToday && (
+            <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
+              <div
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
+                  isPracticeTestMissionCompleteToday && isWarningMode
+                    ? 'bg-white/45'
+                    : isPracticeTestMissionCompleteToday
+                      ? 'bg-green-500/35'
+                      : isWarningMode
+                        ? 'bg-red-600/38'
+                        : 'bg-yellow-400/35'
+                }`}
+              />
+              <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+                isPracticeTestMissionCompleteToday && isWarningMode
+                  ? 'text-black'
+                  : isPracticeTestMissionCompleteToday
+                    ? 'text-white'
+                    : isWarningMode
+                      ? 'text-white'
+                      : 'text-black'
+              }`}>
+              <div className={`${
+                isPracticeTestMissionCompleteToday
+                  ? isWarningMode
+                    ? 'bg-green-600 text-white'
+                    : 'bg-white text-green-500'
+                  : 'bg-black text-white'
+              } p-3 rounded-2xl shadow-lg transition-colors`}>
+                {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
+              </div>
+              <div className="flex flex-col flex-1 text-center sm:text-left">
+                <span className="text-xs opacity-60 tracking-widest">
+                  {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
+                </span>
+                <span className={isPracticeTestMissionCompleteToday ? 'text-base' : ''}>
+                  {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : '1 Practice Test!'}
+                </span>
+                {isPracticeTestMissionCompleteToday && (
+                  <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
+                )}
+              </div>
+              <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+                {!isPracticeTestMissionCompleteToday && (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const wasAlreadyCompleted = Boolean(practiceTestCompletionDates[todayKey]);
+                      if (wasAlreadyCompleted) return;
+                      setPracticeTestEntryIntent('completed');
+                      setPracticeTestEntryQuestions('');
+                      setPracticeTestEntryScore('');
+                      setPracticeTestEntryPercent('');
+                      setShowPracticeTestEntryModal(true);
+                    }}
+                    className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                  >
+                    Completed
+                  </button>
+                )}
+                {isTestMode && isPracticeTestMissionCompleteToday && (
+                  <button
+                    type="button"
+                    onClick={removeTodayPracticeTestRecord}
+                    className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              </div>
+            </motion.div>
           )}
 
           {/* Level Section */}
@@ -3311,8 +3570,9 @@ export default function App() {
             />
           </motion.div>
 
-          {/* Practice Test Reminder (Desktop Right Column) */}
-          <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
+          {/* Practice Test Reminder (Desktop, Complete = Below Level) */}
+          {isPracticeTestMissionCompleteToday && (
+            <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
             <div
               aria-hidden
               className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
@@ -3383,12 +3643,13 @@ export default function App() {
               )}
             </div>
             </div>
-          </motion.div>
+            </motion.div>
+          )}
 
-          {/* History Section — month calendars from study start through exam; height grows with date range */}
+          {/* History — bottom of right column (2-column + single-column stack) */}
           <motion.section
             {...mainSectionLoadProps}
-            className="section-panel-ocean-frost overflow-visible p-6 flex min-[600px]:hidden flex-col items-center gap-6"
+            className="section-panel-ocean-frost overflow-visible p-6 flex flex-col items-center gap-6"
           >
             <div className="flex items-center gap-3">
               <Calendar className="w-6 h-6 text-yellow-300" />
@@ -3397,19 +3658,6 @@ export default function App() {
 
             <div className="w-full flex flex-col gap-8">{historyCalendarMonths}</div>
           </motion.section>
-
-          <motion.div {...mainSectionLoadProps} className="hidden min-[600px]:block w-full">
-            <AchievementsSection 
-              totalQuestions={totalQuestions} 
-              bonusPoints={bonusPoints}
-              lastAchievedIds={lastAchievedIds}
-              totalPracticeTests={totalPracticeTests}
-              history={history}
-              effectiveTime={effectiveTime}
-              setSelectedAchievement={setSelectedAchievement} 
-              className="hidden min-[600px]:flex" 
-            />
-          </motion.div>
         </div>
 
       </main>
@@ -3987,28 +4235,34 @@ export default function App() {
               exit={{ scale: 0.9, y: 24 }}
               className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-emerald-400 shadow-[0_0_50px_rgba(16,185,129,0.35)] relative`}
             >
-              <div className={`${modalBodyScrollClass} p-8`} data-modal-scroll="true">
-                <div className="flex justify-center mb-4">
-                  <img
+              <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
+                <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-emerald-50 overflow-hidden">
+                  <motion.img
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
                     src="/assets/graphic_salmonthumbsup.webp"
                     alt="Salmon thumbs up"
-                    className="w-40 h-40 object-contain drop-shadow-lg"
+                    className="block h-full w-full object-cover object-center"
                     referrerPolicy="no-referrer"
                   />
                 </div>
-                <h3 className="text-2xl font-black uppercase tracking-tight text-emerald-700 mb-2">
-                  You reviewed all incorrect questions!
-                </h3>
-                <p className="text-sm text-gray-600 font-bold mb-6">
-                  Salmon says your mistake list just got absolutely filleted.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowReviewCompleteModal(false)}
-                  className="question-count-clay-btn w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
-                >
-                  Nice!
-                </button>
+                <div className="p-8 pt-6 relative z-10 space-y-6">
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-black uppercase tracking-tight text-emerald-700">
+                      You reviewed all incorrect questions!
+                    </h3>
+                    <p className="text-sm text-gray-600 font-bold">
+                      Salmon says your mistake list just got absolutely filleted.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowReviewCompleteModal(false)}
+                    className="question-count-clay-btn w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
+                  >
+                    Nice!
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -4028,25 +4282,26 @@ export default function App() {
               exit={{ scale: 0.5, y: 100 }}
               className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative`}
             >
-              {logWinCelebrate.tier !== 'effort' && (
-                <div className="w-full h-[220px] md:h-[350px] shrink-0 overflow-hidden bg-cyan-50">
-                  <motion.img
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    src={
-                      logWinCelebrate.tier === 80
-                        ? graphicAsset('rockstarsalmon')
-                        : logWinCelebrate.tier === 70
-                          ? graphicAsset('scholarsalmon')
-                          : graphicAsset('doublethumbsupsalmon')
-                    }
-                    alt=""
-                    className="block h-full w-full object-cover object-center"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-              )}
-              <div className={`${modalBodyScrollClass} p-8 pt-6 relative z-10 space-y-5`} data-modal-scroll="true">
+              <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
+                {logWinCelebrate.tier !== 'effort' && (
+                  <div className="w-full h-[220px] md:h-[350px] shrink-0 overflow-hidden bg-cyan-50">
+                    <motion.img
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      src={
+                        logWinCelebrate.tier === 80
+                          ? graphicAsset('rockstarsalmon')
+                          : logWinCelebrate.tier === 70
+                            ? graphicAsset('scholarsalmon')
+                            : graphicAsset('doublethumbsupsalmon')
+                      }
+                      alt=""
+                      className="block h-full w-full object-cover object-center"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
+                <div className="p-8 pt-6 relative z-10 space-y-5">
                 {logWinCelebrate.tier === 80 && (
                   <h2 className="text-fuchsia-600 text-3xl sm:text-4xl font-black uppercase leading-none">
                     You&apos;re a rockstar!
@@ -4110,6 +4365,7 @@ export default function App() {
                 >
                   Awesome!
                 </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -5067,17 +5323,18 @@ export default function App() {
               exit={{ scale: 0.5, y: 100 }}
               className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative`}
             >
-              <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
-                <motion.img 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  src={graphicAsset('salmonthumbsup')} 
-                  alt="Salmon Thumbs Up" 
-                  className="w-full h-full object-cover object-center"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-              <div className={`${modalBodyScrollClass} p-8 pt-6 relative z-10 space-y-6`} data-modal-scroll="true">
+              <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
+                <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
+                  <motion.img 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    src={graphicAsset('salmonthumbsup')} 
+                    alt="Salmon Thumbs Up" 
+                    className="w-full h-full object-cover object-center"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="p-8 pt-6 relative z-10 space-y-6">
                 <div className="space-y-2">
                   <h2 className="text-cyan-900 text-4xl font-black uppercase leading-none">Goal Reached!</h2>
                   <p className="text-cyan-600 font-bold text-lg leading-tight">{goalMessage}</p>
@@ -5092,6 +5349,7 @@ export default function App() {
                 >
                   I'll Keep It Up!
                 </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -5111,17 +5369,18 @@ export default function App() {
               exit={{ scale: 0.5, y: 100 }}
               className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative`}
             >
-              <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
-                <motion.img 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  src={graphicAsset('salmonthumbsup')} 
-                  alt="Salmon Thumbs Up" 
-                  className="w-full h-full object-cover object-center"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-              <div className={`${modalBodyScrollClass} p-8 pt-6 relative z-10 space-y-6`} data-modal-scroll="true">
+              <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
+                <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
+                  <motion.img 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    src={graphicAsset('salmonthumbsup')} 
+                    alt="Salmon Thumbs Up" 
+                    className="w-full h-full object-cover object-center"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="p-8 pt-6 relative z-10 space-y-6">
                 <div className="space-y-2">
                   <h2 className="text-cyan-900 text-4xl font-black uppercase leading-none">New Record!</h2>
                   <p className="text-cyan-600 font-bold text-lg leading-tight">
@@ -5139,6 +5398,7 @@ export default function App() {
                 >
                   {"Let's Go!"}
                 </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
