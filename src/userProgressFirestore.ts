@@ -89,6 +89,8 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
     practiceTestQuestionCredits: asRecordNum(data.practiceTestQuestionCredits),
     practiceTestQuestionCounts: asRecordNum(data.practiceTestQuestionCounts),
     practiceTestPercents: asRecordNum(data.practiceTestPercents),
+    questionsToReviewToday: Math.max(0, asNum(data.questionsToReviewToday, base.questionsToReviewToday)),
+    totalQuestionsReviewed: Math.max(0, asNum(data.totalQuestionsReviewed, base.totalQuestionsReviewed)),
     lastAchievedIds: asStrArr(data.lastAchievedIds, base.lastAchievedIds),
     recordDayModalLastShown:
       typeof data.recordDayModalLastShown === 'string'
@@ -129,6 +131,8 @@ export function buildProgressFromAppState(args: {
   practiceTestQuestionCredits: Record<string, number>;
   practiceTestQuestionCounts: Record<string, number>;
   practiceTestPercents: Record<string, number>;
+  questionsToReviewToday: number;
+  totalQuestionsReviewed: number;
   lastAchievedIds: string[];
   recordDayModalLastShown?: string | null;
   examDateKey: string;
@@ -158,6 +162,8 @@ export function buildProgressFromAppState(args: {
     practiceTestQuestionCredits: args.practiceTestQuestionCredits,
     practiceTestQuestionCounts: args.practiceTestQuestionCounts,
     practiceTestPercents: args.practiceTestPercents,
+    questionsToReviewToday: Math.max(0, args.questionsToReviewToday),
+    totalQuestionsReviewed: Math.max(0, args.totalQuestionsReviewed),
     lastAchievedIds: args.lastAchievedIds,
     recordDayModalLastShown,
     examDateKey: args.examDateKey,

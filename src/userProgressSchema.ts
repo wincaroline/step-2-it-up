@@ -22,6 +22,8 @@ export type UserProgressV1 = {
   practiceTestQuestionCredits: Record<string, number>;
   practiceTestQuestionCounts: Record<string, number>;
   practiceTestPercents: Record<string, number>;
+  questionsToReviewToday: number;
+  totalQuestionsReviewed: number;
   lastAchievedIds: string[];
   /** Same meaning as localStorage key `recordDayModalLastShownDate`. */
   recordDayModalLastShown: string | null;
@@ -48,6 +50,8 @@ export function emptyUserProgress(): UserProgressV1 {
     practiceTestQuestionCredits: {},
     practiceTestQuestionCounts: {},
     practiceTestPercents: {},
+    questionsToReviewToday: 0,
+    totalQuestionsReviewed: 0,
     lastAchievedIds: ['plankton'],
     recordDayModalLastShown: null,
     examDateKey: DEFAULT_EXAM_DATE_KEY,

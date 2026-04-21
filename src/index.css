@@ -1,5 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Bubblegum+Sans&family=Bungee&family=Special+Elite&family=Space+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Special+Elite&family=Space+Mono:wght@400;700&display=swap');
 
 @theme {
   --font-horror: "Special Elite", serif;

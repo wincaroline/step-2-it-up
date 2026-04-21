@@ -76,6 +76,7 @@ import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
 type LogWinTier = 60 | 70 | 80;
+type LogWinOutcome = LogWinTier | 'effort';
 
 type GreatProgressPendingState = {
   id: number;
@@ -398,16 +399,36 @@ export default function App() {
   });
   const [showPracticeTestEntryModal, setShowPracticeTestEntryModal] = useState(false);
   const [showLogSetModal, setShowLogSetModal] = useState(false);
+  const [showLogReviewModal, setShowLogReviewModal] = useState(false);
+  const [logReviewQuestionDraft, setLogReviewQuestionDraft] = useState('');
   const [logSetQuestionDraft, setLogSetQuestionDraft] = useState('');
   const [logSetPercentDraft, setLogSetPercentDraft] = useState('');
-  const [pendingLogSetTier, setPendingLogSetTier] = useState<LogWinTier | null>(null);
+  const [questionsToReviewToday, setQuestionsToReviewToday] = useState(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('questionsToReviewToday') : null;
+    const parsed = saved ? parseInt(saved, 10) : 0;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  });
+  const [displayQuestionsToReview, setDisplayQuestionsToReview] = useState(questionsToReviewToday);
+  const [isReviewCountdownActive, setIsReviewCountdownActive] = useState(false);
+  const [reviewZeroTransitionPhase, setReviewZeroTransitionPhase] = useState<'zero' | null>(null);
+  const [showReviewCompleteModal, setShowReviewCompleteModal] = useState(false);
+  const [isBpPulseActive, setIsBpPulseActive] = useState(false);
+  const [displayBonusPointsEarnedToday, setDisplayBonusPointsEarnedToday] = useState(0);
+  const [isBpCountupActive, setIsBpCountupActive] = useState(false);
+  const [totalQuestionsReviewed, setTotalQuestionsReviewed] = useState(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('totalQuestionsReviewed') : null;
+    const parsed = saved ? parseInt(saved, 10) : 0;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  });
+  const [pendingLogSetTier, setPendingLogSetTier] = useState<LogWinOutcome | null>(null);
   const [showLogWinCelebrateModal, setShowLogWinCelebrateModal] = useState(false);
   const [logWinCelebrate, setLogWinCelebrate] = useState<{
-    tier: LogWinTier;
+    tier: LogWinOutcome;
     questionsCovered: number;
     percentCorrect: number;
     bonusPointsEarned: number;
     newDailyTotal: number;
+    questionsToReview: number;
   } | null>(null);
   const [practiceTestEntryIntent, setPracticeTestEntryIntent] = useState<'completed' | 'adminPlus' | null>(null);
   const [practiceTestEntryQuestions, setPracticeTestEntryQuestions] = useState('');
@@ -417,7 +438,12 @@ export default function App() {
   const [showGreatProgressModal, setShowGreatProgressModal] = useState(false);
   const [greatProgressSnapshot, setGreatProgressSnapshot] = useState<Omit<GreatProgressPendingState, 'id'> | null>(null);
   const greatProgressBonusAppliedIds = useRef<Set<number>>(new Set());
+  const bpPulseTimeoutRef = useRef<number | null>(null);
+  const bpPulseStartDelayTimeoutRef = useRef<number | null>(null);
+  const bpCountupIntervalRef = useRef<number | null>(null);
+  const reviewZeroHoldTimeoutRef = useRef<number | null>(null);
   const logSetFirstInputRef = useRef<HTMLInputElement>(null);
+  const logReviewFirstInputRef = useRef<HTMLInputElement>(null);
   const practiceTestEntryFirstInputRef = useRef<HTMLInputElement>(null);
   /** Tracks calendar day for `todayKey` so we can reset daily counts at local midnight (or when simulated time jumps). */
   const prevCalendarDayKeyRef = useRef<string | null>(null);
@@ -511,10 +537,21 @@ export default function App() {
   }, [showLogSetModal]);
 
   useEffect(() => {
+    if (!showLogReviewModal) return;
+    const t = window.setTimeout(() => logReviewFirstInputRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [showLogReviewModal]);
+
+  useEffect(() => {
     if (!showPracticeTestEntryModal) return;
     const t = window.setTimeout(() => practiceTestEntryFirstInputRef.current?.focus(), 0);
     return () => clearTimeout(t);
   }, [showPracticeTestEntryModal]);
+
+  useEffect(() => {
+    if (isReviewCountdownActive) return;
+    setDisplayQuestionsToReview(questionsToReviewToday);
+  }, [questionsToReviewToday, isReviewCountdownActive]);
 
   const handleSignOut = useCallback(async () => {
     setAuthActionPending(true);
@@ -558,6 +595,8 @@ export default function App() {
     setPracticeTestQuestionCredits(p.practiceTestQuestionCredits);
     setPracticeTestQuestionCounts(p.practiceTestQuestionCounts);
     setPracticeTestPercents(p.practiceTestPercents);
+    setQuestionsToReviewToday(Math.max(0, p.questionsToReviewToday ?? 0));
+    setTotalQuestionsReviewed(Math.max(0, p.totalQuestionsReviewed ?? 0));
     setLastAchievedIds(mergeDefaultSeenAchievementIds(p.lastAchievedIds));
     setExamDateKey(p.examDateKey);
     setDailyGoalQuestions(clampDailyGoal(p.dailyGoalQuestions));
@@ -588,6 +627,8 @@ export default function App() {
         practiceTestQuestionCredits,
         practiceTestQuestionCounts,
         practiceTestPercents,
+        questionsToReviewToday,
+        totalQuestionsReviewed,
         lastAchievedIds,
         examDateKey,
         dailyGoalQuestions,
@@ -608,6 +649,8 @@ export default function App() {
       practiceTestQuestionCredits,
       practiceTestQuestionCounts,
       practiceTestPercents,
+      questionsToReviewToday,
+      totalQuestionsReviewed,
       lastAchievedIds,
       examDateKey,
       dailyGoalQuestions,
@@ -877,7 +920,13 @@ export default function App() {
     prevCalendarDayKeyRef.current = todayKey;
     const countForDay = history[todayKey];
     setDailyQuestions(typeof countForDay === 'number' ? Math.max(0, countForDay) : 0);
+    setQuestionsToReviewToday(0);
   }, [todayKey, history]);
+
+  useEffect(() => {
+    if (isBpCountupActive) return;
+    setDisplayBonusPointsEarnedToday(bonusPointsEarnedToday);
+  }, [bonusPointsEarnedToday, isBpCountupActive]);
 
   const practiceTestChartSeries = useMemo(
     () => buildPracticeTestChartSeries(practiceTestCompletionDates, practiceTestScores),
@@ -1357,6 +1406,14 @@ export default function App() {
     localStorage.setItem('bonusPointsHistory', JSON.stringify(bonusPointsHistory));
   }, [bonusPointsHistory]);
 
+  useEffect(() => {
+    localStorage.setItem('questionsToReviewToday', questionsToReviewToday.toString());
+  }, [questionsToReviewToday]);
+
+  useEffect(() => {
+    localStorage.setItem('totalQuestionsReviewed', totalQuestionsReviewed.toString());
+  }, [totalQuestionsReviewed]);
+
   const adjustBonusPointsForDay = useCallback((dateKey: string, delta: number) => {
     if (delta === 0) return;
     setBonusPoints((prev) => Math.max(0, prev + delta));
@@ -1414,6 +1471,8 @@ export default function App() {
       showImageViewer ||
       showPracticeTestEntryModal ||
       showLogSetModal ||
+      showLogReviewModal ||
+      showReviewCompleteModal ||
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
       Boolean(practiceScoreSpotlight) ||
@@ -1435,6 +1494,8 @@ export default function App() {
     showImageViewer,
     showPracticeTestEntryModal,
     showLogSetModal,
+    showLogReviewModal,
+    showReviewCompleteModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
     practiceScoreSpotlight?.dateKey,
@@ -1451,6 +1512,8 @@ export default function App() {
       showImageViewer ||
       showPracticeTestEntryModal ||
       showLogSetModal ||
+      showLogReviewModal ||
+      showReviewCompleteModal ||
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
       Boolean(practiceScoreSpotlight) ||
@@ -1473,6 +1536,8 @@ export default function App() {
     showImageViewer,
     showPracticeTestEntryModal,
     showLogSetModal,
+    showLogReviewModal,
+    showReviewCompleteModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
     practiceScoreSpotlight?.dateKey,
@@ -1483,6 +1548,10 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (feedbackSuccessToastTimeoutRef.current) clearTimeout(feedbackSuccessToastTimeoutRef.current);
+      if (bpPulseTimeoutRef.current) clearTimeout(bpPulseTimeoutRef.current);
+      if (bpPulseStartDelayTimeoutRef.current) clearTimeout(bpPulseStartDelayTimeoutRef.current);
+      if (bpCountupIntervalRef.current) clearInterval(bpCountupIntervalRef.current);
+      if (reviewZeroHoldTimeoutRef.current) clearTimeout(reviewZeroHoldTimeoutRef.current);
     };
   }, []);
 
@@ -1631,6 +1700,129 @@ export default function App() {
     setLogSetPercentDraft('');
   };
 
+  const openLogReviewModal = () => {
+    setLogReviewQuestionDraft('');
+    setShowLogReviewModal(true);
+  };
+
+  const cancelLogReviewModal = () => {
+    setShowLogReviewModal(false);
+    setLogReviewQuestionDraft('');
+  };
+
+  const triggerBpPulse = (fromBp: number | null = null, toBp: number | null = null) => {
+    if (bpPulseStartDelayTimeoutRef.current) {
+      window.clearTimeout(bpPulseStartDelayTimeoutRef.current);
+      bpPulseStartDelayTimeoutRef.current = null;
+    }
+    if (
+      fromBp !== null &&
+      toBp !== null &&
+      Number.isFinite(fromBp) &&
+      Number.isFinite(toBp) &&
+      toBp > fromBp
+    ) {
+      if (bpCountupIntervalRef.current) {
+        window.clearInterval(bpCountupIntervalRef.current);
+      }
+      setIsBpCountupActive(true);
+      setDisplayBonusPointsEarnedToday(fromBp);
+      const diff = toBp - fromBp;
+      const stepMs = Math.max(36, Math.min(85, Math.floor(780 / diff)));
+      let current = fromBp;
+      bpCountupIntervalRef.current = window.setInterval(() => {
+        current += 1;
+        if (current >= toBp) {
+          if (bpCountupIntervalRef.current) {
+            window.clearInterval(bpCountupIntervalRef.current);
+            bpCountupIntervalRef.current = null;
+          }
+          setDisplayBonusPointsEarnedToday(toBp);
+          setIsBpCountupActive(false);
+          return;
+        }
+        setDisplayBonusPointsEarnedToday(current);
+      }, stepMs);
+    }
+    setIsBpPulseActive(true);
+    if (bpPulseTimeoutRef.current) {
+      window.clearTimeout(bpPulseTimeoutRef.current);
+    }
+    bpPulseTimeoutRef.current = window.setTimeout(() => {
+      setIsBpPulseActive(false);
+      bpPulseTimeoutRef.current = null;
+    }, 800);
+  };
+
+  const animateReviewCountdown = (
+    from: number,
+    to: number,
+    bpFromForPulse: number,
+    bpToForPulse: number
+  ) => {
+    const maybeShowReviewCompleteModal = () => {
+      if (to !== 0) return;
+      setReviewZeroTransitionPhase('zero');
+      if (reviewZeroHoldTimeoutRef.current) {
+        window.clearTimeout(reviewZeroHoldTimeoutRef.current);
+      }
+      reviewZeroHoldTimeoutRef.current = window.setTimeout(() => {
+        setReviewZeroTransitionPhase(null);
+        setShowReviewCompleteModal(true);
+        reviewZeroHoldTimeoutRef.current = null;
+      }, 400);
+    };
+
+    const triggerBpPulseWithDelay = () => {
+      if (bpPulseStartDelayTimeoutRef.current) {
+        window.clearTimeout(bpPulseStartDelayTimeoutRef.current);
+      }
+      bpPulseStartDelayTimeoutRef.current = window.setTimeout(() => {
+        triggerBpPulse(bpFromForPulse, bpToForPulse);
+        bpPulseStartDelayTimeoutRef.current = null;
+      }, 400);
+    };
+
+    if (from <= to) {
+      setDisplayQuestionsToReview(to);
+      maybeShowReviewCompleteModal();
+      triggerBpPulseWithDelay();
+      return;
+    }
+    setIsReviewCountdownActive(true);
+    setDisplayQuestionsToReview(from);
+    const diff = from - to;
+    const stepMs = Math.max(28, Math.min(70, Math.floor(560 / diff)));
+    let current = from;
+    const interval = window.setInterval(() => {
+      current -= 1;
+      if (current <= to) {
+        window.clearInterval(interval);
+        setDisplayQuestionsToReview(to);
+        setIsReviewCountdownActive(false);
+        maybeShowReviewCompleteModal();
+        triggerBpPulseWithDelay();
+        return;
+      }
+      setDisplayQuestionsToReview(current);
+    }, stepMs);
+  };
+
+  const confirmLogReview = () => {
+    const n = parseInt(logReviewQuestionDraft.replace(/,/g, ''), 10);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const prevQuestionsToReview = questionsToReviewToday;
+    const nextQuestionsToReview = Math.max(0, prevQuestionsToReview - n);
+    const prevBpEarnedToday = bonusPointsEarnedToday;
+    const nextBpEarnedToday = prevBpEarnedToday + n;
+    adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), n);
+    setQuestionsToReviewToday(nextQuestionsToReview);
+    setTotalQuestionsReviewed((prev) => prev + n);
+    animateReviewCountdown(prevQuestionsToReview, nextQuestionsToReview, prevBpEarnedToday, nextBpEarnedToday);
+    setShowLogReviewModal(false);
+    setLogReviewQuestionDraft('');
+  };
+
   const triggerModerateCelebration = useCallback(() => {
     confetti({
       particleCount: 100,
@@ -1655,16 +1847,23 @@ export default function App() {
       }
     });
     addQuestions(n, undefined, bonusPoints + bonusPts);
-    const highestTier: LogWinTier | null =
-      percent === null ? null : percent >= 80 ? 80 : percent >= 70 ? 70 : percent >= 60 ? 60 : null;
+    const highestTier: LogWinOutcome | null =
+      percent === null ? null : percent >= 80 ? 80 : percent >= 70 ? 70 : percent >= 60 ? 60 : 'effort';
+    const questionsToReview =
+      percent === null ? 0 : Math.max(0, n - Math.round((n * percent) / 100));
 
-    if (highestTier) {
+    if (questionsToReview > 0) {
+      setQuestionsToReviewToday((prev) => prev + questionsToReview);
+    }
+
+    if (highestTier && percent !== null) {
       setLogWinCelebrate({
         tier: highestTier,
         questionsCovered: n,
-        percentCorrect: percent!,
+        percentCorrect: percent,
         bonusPointsEarned: bonusPts,
         newDailyTotal,
+        questionsToReview,
       });
       setPendingLogSetTier(highestTier);
     } else {
@@ -1672,6 +1871,9 @@ export default function App() {
       setPendingLogSetTier(null);
     }
     setShowLogSetModal(false);
+    setShowLogReviewModal(false);
+    setShowReviewCompleteModal(false);
+    setLogReviewQuestionDraft('');
     setLogSetQuestionDraft('');
     setLogSetPercentDraft('');
   };
@@ -1691,6 +1893,8 @@ export default function App() {
     setTotalQuestions(0);
     setBonusPoints(0);
     setBonusPointsHistory({});
+    setQuestionsToReviewToday(0);
+    setTotalQuestionsReviewed(0);
     setLastLevel(0);
     setPracticeTestCompletionDates({});
     setPracticeTestScores({});
@@ -2497,10 +2701,10 @@ export default function App() {
   return (
     <div className={`min-h-screen flex flex-col ${
       isSleepMode 
-        ? 'bg-gradient-to-b from-[#01366A] via-[#112B59] to-[#051933] sleep-mode' 
+        ? 'bg-gradient-to-b from-[#195190] via-[#112B59] to-[#051933] sleep-mode' 
         : isWarningMode 
           ? 'bg-[linear-gradient(180deg,#2a0a0a_0%,#100606_16%,#050505_32%,#060608_74%,#050818_100%)] warning-mode' 
-          : 'bg-[linear-gradient(180deg,#21A8DF_0%,#0576AA_52%,#18415F_100%)] font-sans'
+          : 'bg-[linear-gradient(180deg,#A8DFFF_0%,#2DA3DA_15%,#18415F_100%)] font-sans'
     } text-white overflow-x-hidden relative transition-colors duration-1000`}>
       {!isWarningMode && (
         <motion.img
@@ -2557,8 +2761,8 @@ export default function App() {
       <header className={`relative z-20 shrink-0 w-full px-6 py-4 flex justify-between items-center ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
           <div className="flex items-center gap-2 px-1 sm:px-4 py-1 sm:py-2">
-            <Anchor className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span className="font-black text-xs uppercase tracking-[0.2em] header-text">Step 2 It Up!</span>
+            <Anchor className="w-5 h-5 sm:w-6 sm:h-6" />
+            <span className="font-black text-xs sm:text-lg uppercase tracking-[0.2em] header-text">Step 2 It Up!</span>
           </div>
           {isTestMode && (
             <div className="bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest animate-pulse shadow-lg border border-red-400 self-start sm:self-auto ml-1 sm:ml-0">
@@ -2577,13 +2781,6 @@ export default function App() {
             })} ET
           </div>
           <div className="flex gap-2 sm:gap-3">
-            <button 
-              onClick={() => setIsMuted(!isMuted)}
-              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}
-              title={isMuted ? "Unmute" : "Mute"}
-            >
-              {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-            </button>
             <button
               type="button"
               onClick={() => {
@@ -2609,7 +2806,7 @@ export default function App() {
       </header>
 
       {/* --- Main Content --- */}
-      <main className="relative z-10 flex-1 w-full max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+      <main className="relative z-10 flex-1 w-full max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 min-[600px]:grid-cols-[2fr_1fr] gap-8 items-start">
         
         {/* Left Column: Progress & Actions */}
         <div className="flex flex-col gap-8">
@@ -2620,55 +2817,72 @@ export default function App() {
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
               />
             )}
-            <motion.div 
-              key={dailyQuestions}
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="flex flex-col items-center"
-            >
-              <span className={`${isSleepMode ? 'text-6xl md:text-8xl text-blue-200/80' : isWarningMode ? 'text-6xl md:text-8xl text-white/80' : 'text-7xl md:text-9xl text-yellow-300'} font-black drop-shadow-[0_15px_35px_rgba(0,0,0,0.5)] leading-none`}>
+            <div className="w-full">
+              <motion.div
+                key={dailyQuestions}
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="p-1 sm:p-2 flex flex-col items-center text-center"
+              >
+                <span className={`${isSleepMode ? 'text-6xl md:text-7xl text-blue-200/80' : isWarningMode ? 'text-6xl md:text-7xl text-white/80' : 'text-7xl md:text-8xl text-yellow-300'} font-black drop-shadow-[0_15px_35px_rgba(0,0,0,0.5)] leading-none`}>
                   {dailyQuestions}
                 </span>
-              <span className="text-2xl font-bold opacity-90 mt-4 tracking-wide">Questions Done Today</span>
-              {bonusPointsEarnedToday > 0 && (
-                <span className="mt-[8px] block text-base font-semibold text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
-                  Plus{' '}
-                  <span className="font-semibold text-purple-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
-                    {bonusPointsEarnedToday} BP
-                  </span>{' '}
-                  earned!
-                </span>
-              )}
-              <div className={`w-full ${bonusPointsEarnedToday > 0 ? 'mt-[16px]' : 'mt-2'}`}>
-                <QuestionButtons onUpdate={addQuestions} isTestMode={isTestMode} isWarningMode={isWarningMode} isSleepMode={isSleepMode} />
-              </div>
-              <button
-                type="button"
-                onClick={openLogSetModal}
-                className={`question-count-clay-btn mt-3 rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] ${
-                  isSleepMode
-                    ? 'bg-slate-700/80 text-white hover:bg-slate-600'
-                    : isWarningMode
-                      ? 'bg-red-950/80 text-white hover:bg-red-900'
-                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
-                }`}
-              >
-                Log Set
-              </button>
-            </motion.div>
-
-            {/* Progress Bar */}
-            <div className="w-full space-y-2">
-              <div className="h-12 w-full bg-black/30 rounded-full overflow-hidden border-2 border-white/30 p-1.5 shadow-inner">
-                <motion.div 
-                  initial={{ width: 0 }}
-                  animate={{ width: `${Math.min(100, (dailyQuestions / Math.max(1, dailyGoalQuestions)) * 100)}%` }}
-                  className={`h-full rounded-full ${isSleepMode ? 'bg-gradient-to-r from-blue-900 to-slate-900 shadow-[0_0_20px_rgba(96,165,250,0.6)]' : isWarningMode ? 'bg-gradient-to-r from-red-900 to-black shadow-[0_0_20px_rgba(220,38,38,0.6)]' : 'bg-gradient-to-r from-cyan-400 via-blue-400 to-blue-500 shadow-[0_0_20px_rgba(34,211,238,0.6)]'}`}
-                />
-              </div>
-              <div className="text-center text-sm font-black uppercase tracking-[0.3em] opacity-80">
-                Daily Goal: {dailyGoalQuestions}
-              </div>
+                <span className="text-lg sm:text-xl font-bold opacity-90 mt-3 tracking-wide">Questions Done Today</span>
+                {bonusPointsEarnedToday > 0 && (
+                  <span className="mt-2 block text-sm sm:text-base font-semibold text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                    Plus{' '}
+                    <motion.span
+                      animate={
+                        isBpPulseActive
+                          ? {
+                              scale: [1, 1.28, 1],
+                              textShadow: [
+                                '0 1px 2px rgba(0,0,0,0.35)',
+                                '0 0 14px rgba(196,181,253,0.95), 0 0 24px rgba(168,85,247,0.75)',
+                                '0 1px 2px rgba(0,0,0,0.35)',
+                              ],
+                            }
+                          : { scale: 1, textShadow: '0 1px 2px rgba(0,0,0,0.35)' }
+                      }
+                      transition={{ duration: 0.78, ease: 'easeInOut' }}
+                      className="inline-block font-semibold text-purple-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
+                    >
+                      {displayBonusPointsEarnedToday} BP
+                    </motion.span>{' '}
+                    earned!
+                  </span>
+                )}
+                <div className={`w-full ${bonusPointsEarnedToday > 0 ? 'mt-4' : 'mt-3'}`}>
+                  {isTestMode && (
+                    <QuestionButtons onUpdate={addQuestions} isTestMode={isTestMode} isWarningMode={isWarningMode} isSleepMode={isSleepMode} />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={openLogSetModal}
+                  className={`question-count-clay-btn mt-3 rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] ${
+                    isSleepMode
+                      ? 'bg-slate-700/80 text-white hover:bg-slate-600'
+                      : isWarningMode
+                        ? 'bg-red-950/80 text-white hover:bg-red-900'
+                        : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
+                  }`}
+                >
+                  Log Set
+                </button>
+                <div className="w-full space-y-2 mt-4">
+                  <div className="h-12 w-full bg-black/30 rounded-full overflow-hidden border-2 border-white/30 p-1.5 shadow-inner">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (dailyQuestions / Math.max(1, dailyGoalQuestions)) * 100)}%` }}
+                      className={`h-full rounded-full ${isSleepMode ? 'bg-gradient-to-r from-blue-900 to-slate-900 shadow-[0_0_20px_rgba(96,165,250,0.6)]' : isWarningMode ? 'bg-gradient-to-r from-red-900 to-black shadow-[0_0_20px_rgba(220,38,38,0.6)]' : 'bg-gradient-to-r from-cyan-400 via-blue-400 to-blue-500 shadow-[0_0_20px_rgba(34,211,238,0.6)]'}`}
+                    />
+                  </div>
+                  <div className="text-center text-xs sm:text-sm font-black uppercase tracking-[0.3em] opacity-80">
+                    Daily Goal: {dailyGoalQuestions}
+                  </div>
+                </div>
+              </motion.div>
             </div>
 
             {/* Action Buttons removed */}
@@ -2682,7 +2896,7 @@ export default function App() {
           </motion.section>
 
           {(isWarningMode || isSleepMode) && (
-            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 lg:hidden">
+            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 min-[600px]:hidden">
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
               />
@@ -2698,7 +2912,7 @@ export default function App() {
           )}
 
           {/* Level Section (Mobile Reorder) */}
-          <motion.div {...mainSectionLoadProps} className="lg:hidden">
+          <motion.div {...mainSectionLoadProps} className="min-[600px]:hidden">
             <LevelSection
               currentLevel={currentLevel}
               currentLevelIndex={currentLevelIndex}
@@ -2714,7 +2928,7 @@ export default function App() {
           </motion.div>
 
           {/* Practice Test Reminder */}
-          <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
+          <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500 min-[600px]:hidden">
             <div
               aria-hidden
               className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
@@ -2816,6 +3030,17 @@ export default function App() {
                 </div>
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
                   Total XP
+                </span>
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <div className="flex items-center gap-2">
+                  <Check className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-cyan-300'}`} />
+                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-cyan-300'}`}>
+                    {totalQuestionsReviewed}
+                  </span>
+                </div>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Questions Reviewed
                 </span>
               </div>
               <div className="flex flex-col items-center text-center">
@@ -2979,7 +3204,7 @@ export default function App() {
               />
             </div>
           </motion.section>
-          <motion.div {...mainSectionLoadProps} className="hidden lg:block w-full">
+          <motion.div {...mainSectionLoadProps} className="min-[600px]:hidden w-full">
             <AchievementsSection 
               totalQuestions={totalQuestions} 
               bonusPoints={bonusPoints}
@@ -2988,15 +3213,28 @@ export default function App() {
               history={history}
               effectiveTime={effectiveTime}
               setSelectedAchievement={setSelectedAchievement} 
-              className="hidden lg:flex" 
+              className="min-[600px]:hidden" 
             />
           </motion.div>
+
+          {/* History Section (Desktop Left Column) */}
+          <motion.section
+            {...mainSectionLoadProps}
+            className="section-panel-ocean-frost overflow-visible p-6 hidden min-[600px]:flex flex-col items-center gap-6"
+          >
+            <div className="flex items-center gap-3">
+              <Calendar className="w-6 h-6 text-yellow-300" />
+              <h2 className="text-2xl font-black text-white uppercase tracking-widest">History</h2>
+            </div>
+
+            <div className="w-full flex flex-col gap-8">{historyCalendarMonths}</div>
+          </motion.section>
         </div>
 
         {/* Right Column: Level & Stats */}
         <div className="flex flex-col gap-8">
-          {(isWarningMode || isSleepMode) && (
-            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden lg:flex w-full flex-col items-center text-center gap-6 font-serious">
+          {isWarningMode && (
+            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex w-full flex-col items-center text-center gap-6 font-serious">
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
               />
@@ -3011,8 +3249,54 @@ export default function App() {
             </motion.section>
           )}
 
+          {(displayQuestionsToReview > 0 || isReviewCountdownActive || reviewZeroTransitionPhase !== null) && (
+            <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex w-full flex-col items-center justify-center text-center gap-4">
+              <div className="flex flex-col items-center text-center gap-3">
+                {reviewZeroTransitionPhase === null && (
+                  <p
+                    className={`text-6xl font-black tabular-nums leading-none drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)] ${
+                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
+                    }`}
+                  >
+                    {displayQuestionsToReview}
+                  </p>
+                )}
+                {reviewZeroTransitionPhase !== null && (
+                  <motion.p
+                    key="review-zero"
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    className={`text-6xl font-black tabular-nums leading-none drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)] ${
+                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
+                    }`}
+                  >
+                    0
+                  </motion.p>
+                )}
+                <span className="text-lg sm:text-xl font-bold opacity-90 tracking-wide text-white">
+                  Questions to Review
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={openLogReviewModal}
+                className={`question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
+                  isSleepMode
+                    ? 'bg-slate-700/80 text-white hover:bg-slate-600'
+                    : isWarningMode
+                      ? 'bg-red-950/80 text-white hover:bg-red-900'
+                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
+                }`}
+              >
+                Log Review
+              </button>
+            </motion.section>
+          )}
+
           {/* Level Section */}
-          <motion.div {...mainSectionLoadProps} className="hidden lg:block">
+          <motion.div {...mainSectionLoadProps} className="hidden min-[600px]:block">
             <LevelSection
               currentLevel={currentLevel}
               currentLevelIndex={currentLevelIndex}
@@ -3027,10 +3311,84 @@ export default function App() {
             />
           </motion.div>
 
+          {/* Practice Test Reminder (Desktop Right Column) */}
+          <motion.div {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex flex-col sm:flex-row items-center gap-6 font-black text-lg uppercase transition-all duration-500">
+            <div
+              aria-hidden
+              className={`pointer-events-none absolute inset-0 rounded-[3rem] ${
+                isPracticeTestMissionCompleteToday && isWarningMode
+                  ? 'bg-white/45'
+                  : isPracticeTestMissionCompleteToday
+                    ? 'bg-green-500/35'
+                    : isWarningMode
+                      ? 'bg-red-600/38'
+                      : 'bg-yellow-400/35'
+              }`}
+            />
+            <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+              isPracticeTestMissionCompleteToday && isWarningMode
+                ? 'text-black'
+                : isPracticeTestMissionCompleteToday
+                  ? 'text-white'
+                  : isWarningMode
+                    ? 'text-white'
+                    : 'text-black'
+            }`}>
+            <div className={`${
+              isPracticeTestMissionCompleteToday
+                ? isWarningMode
+                  ? 'bg-green-600 text-white'
+                  : 'bg-white text-green-500'
+                : 'bg-black text-white'
+            } p-3 rounded-2xl shadow-lg transition-colors`}>
+              {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
+            </div>
+            <div className="flex flex-col flex-1 text-center sm:text-left">
+              <span className="text-xs opacity-60 tracking-widest">
+                {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
+              </span>
+              <span className={isPracticeTestMissionCompleteToday ? 'text-base' : ''}>
+                {isPracticeTestMissionCompleteToday ? 'Mission Accomplished' : '1 Practice Test!'}
+              </span>
+              {isPracticeTestMissionCompleteToday && (
+                <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
+              )}
+            </div>
+            <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+              {!isPracticeTestMissionCompleteToday && (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const wasAlreadyCompleted = Boolean(practiceTestCompletionDates[todayKey]);
+                    if (wasAlreadyCompleted) return;
+                    setPracticeTestEntryIntent('completed');
+                    setPracticeTestEntryQuestions('');
+                    setPracticeTestEntryScore('');
+                    setPracticeTestEntryPercent('');
+                    setShowPracticeTestEntryModal(true);
+                  }}
+                  className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                >
+                  Completed
+                </button>
+              )}
+              {isTestMode && isPracticeTestMissionCompleteToday && (
+                <button
+                  type="button"
+                  onClick={removeTodayPracticeTestRecord}
+                  className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            </div>
+          </motion.div>
+
           {/* History Section — month calendars from study start through exam; height grows with date range */}
           <motion.section
             {...mainSectionLoadProps}
-            className="section-panel-ocean-frost overflow-visible p-6 flex flex-col items-center gap-6"
+            className="section-panel-ocean-frost overflow-visible p-6 flex min-[600px]:hidden flex-col items-center gap-6"
           >
             <div className="flex items-center gap-3">
               <Calendar className="w-6 h-6 text-yellow-300" />
@@ -3040,7 +3398,7 @@ export default function App() {
             <div className="w-full flex flex-col gap-8">{historyCalendarMonths}</div>
           </motion.section>
 
-          <motion.div {...mainSectionLoadProps} className="lg:hidden w-full">
+          <motion.div {...mainSectionLoadProps} className="hidden min-[600px]:block w-full">
             <AchievementsSection 
               totalQuestions={totalQuestions} 
               bonusPoints={bonusPoints}
@@ -3049,7 +3407,7 @@ export default function App() {
               history={history}
               effectiveTime={effectiveTime}
               setSelectedAchievement={setSelectedAchievement} 
-              className="lg:hidden" 
+              className="hidden min-[600px]:flex" 
             />
           </motion.div>
         </div>
@@ -3488,6 +3846,11 @@ export default function App() {
                   inputMode="numeric"
                   value={logSetQuestionDraft}
                   onChange={(e) => setLogSetQuestionDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    confirmLogSet();
+                  }}
                   placeholder="e.g. 40"
                   className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
                 />
@@ -3506,6 +3869,11 @@ export default function App() {
                   inputMode="decimal"
                   value={logSetPercentDraft}
                   onChange={(e) => setLogSetPercentDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    confirmLogSet();
+                  }}
                   placeholder="e.g. 72"
                   className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
                 />
@@ -3539,6 +3907,113 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* Log Review entry */}
+        {showLogReviewModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[91] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/95 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 24 }}
+              className={`bg-white rounded-[2rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-4 border-cyan-400 shadow-2xl text-left`}
+            >
+              <div className={`${modalBodyScrollClass} p-6 sm:p-8`} data-modal-scroll="true">
+                <h3 className="text-xl font-black uppercase tracking-tight text-blue-950 mb-2">
+                  Log Review
+                </h3>
+                <p className="text-sm text-gray-600 font-medium mb-6">
+                  Enter how many review questions you completed.
+                </p>
+                <div className="mb-8">
+                  <label htmlFor="log-review-q" className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
+                    Questions Reviewed
+                  </label>
+                  <input
+                    ref={logReviewFirstInputRef}
+                    id="log-review-q"
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={logReviewQuestionDraft}
+                    onChange={(e) => setLogReviewQuestionDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      confirmLogReview();
+                    }}
+                    placeholder="e.g. 20"
+                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 font-black text-blue-950 focus:outline-none focus:border-cyan-400"
+                  />
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={cancelLogReviewModal}
+                    className="flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all active:scale-[0.98]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmLogReview}
+                    disabled={
+                      !Number.isFinite(parseInt(logReviewQuestionDraft.replace(/,/g, ''), 10)) ||
+                      parseInt(logReviewQuestionDraft.replace(/,/g, ''), 10) <= 0
+                    }
+                    className="question-count-clay-btn flex-1 py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-cyan-600 text-white hover:bg-cyan-500 transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showReviewCompleteModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[92] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 24 }}
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-emerald-400 shadow-[0_0_50px_rgba(16,185,129,0.35)] relative`}
+            >
+              <div className={`${modalBodyScrollClass} p-8`} data-modal-scroll="true">
+                <div className="flex justify-center mb-4">
+                  <img
+                    src="/assets/graphic_salmonthumbsup.webp"
+                    alt="Salmon thumbs up"
+                    className="w-40 h-40 object-contain drop-shadow-lg"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <h3 className="text-2xl font-black uppercase tracking-tight text-emerald-700 mb-2">
+                  You reviewed all incorrect questions!
+                </h3>
+                <p className="text-sm text-gray-600 font-bold mb-6">
+                  Salmon says your mistake list just got absolutely filleted.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowReviewCompleteModal(false)}
+                  className="question-count-clay-btn w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
+                >
+                  Nice!
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {/* Log Set: tier celebration */}
         {showLogWinCelebrateModal && logWinCelebrate && (
           <motion.div
@@ -3553,26 +4028,33 @@ export default function App() {
               exit={{ scale: 0.5, y: 100 }}
               className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative`}
             >
-              <div className="w-full h-[220px] md:h-[350px] shrink-0 overflow-hidden bg-cyan-50">
-                <motion.img
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  src={
-                    logWinCelebrate.tier === 80
-                      ? graphicAsset('rockstarsalmon')
-                      : logWinCelebrate.tier === 70
-                        ? graphicAsset('scholarsalmon')
-                        : graphicAsset('doublethumbsupsalmon')
-                  }
-                  alt=""
-                  className="block h-full w-full object-cover object-center"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
+              {logWinCelebrate.tier !== 'effort' && (
+                <div className="w-full h-[220px] md:h-[350px] shrink-0 overflow-hidden bg-cyan-50">
+                  <motion.img
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    src={
+                      logWinCelebrate.tier === 80
+                        ? graphicAsset('rockstarsalmon')
+                        : logWinCelebrate.tier === 70
+                          ? graphicAsset('scholarsalmon')
+                          : graphicAsset('doublethumbsupsalmon')
+                    }
+                    alt=""
+                    className="block h-full w-full object-cover object-center"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              )}
               <div className={`${modalBodyScrollClass} p-8 pt-6 relative z-10 space-y-5`} data-modal-scroll="true">
                 {logWinCelebrate.tier === 80 && (
                   <h2 className="text-fuchsia-600 text-3xl sm:text-4xl font-black uppercase leading-none">
                     You&apos;re a rockstar!
+                  </h2>
+                )}
+                {logWinCelebrate.tier === 'effort' && (
+                  <h2 className="text-cyan-700 text-3xl sm:text-4xl font-black uppercase leading-none">
+                    Good Effort!
                   </h2>
                 )}
                 <div className="space-y-2">
@@ -3583,6 +4065,8 @@ export default function App() {
                       'Scholar Salmon tips their mortarboard. You cleared 70%+ on this set!'}
                     {logWinCelebrate.tier === 80 &&
                       'Rockstar Salmon is shouting encore. You cleared 80%+ on this set!'}
+                    {logWinCelebrate.tier === 'effort' &&
+                      'You logged your set and kept momentum going. Keep practicing and you will keep improving.'}
                   </p>
                 </div>
                 <div className="bg-cyan-50 p-4 rounded-2xl border-2 border-cyan-100 space-y-2 text-left">
@@ -3608,6 +4092,14 @@ export default function App() {
                     </span>
                   </div>
                 </div>
+                {logWinCelebrate.questionsToReview > 0 && (
+                  <div className="bg-red-50 p-4 rounded-2xl border-2 border-red-100 text-left">
+                    <div className="flex justify-between gap-4 text-sm font-bold text-red-900">
+                      <span>Questions to Review</span>
+                      <span className="font-black tabular-nums">{logWinCelebrate.questionsToReview}</span>
+                    </div>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -4078,6 +4570,21 @@ export default function App() {
                           </button>
                         </div>
                       )}
+                    </div>
+
+                    <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Sound</p>
+                      <button
+                        type="button"
+                        onClick={() => setIsMuted(!isMuted)}
+                        className={`question-count-clay-btn w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${isMuted ? 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100' : 'bg-cyan-50 border-cyan-200 text-cyan-800 hover:bg-cyan-100'}`}
+                        aria-label={isMuted ? 'Turn sound on' : 'Turn sound off'}
+                      >
+                        <span className="font-black text-sm uppercase tracking-wider">
+                          {isMuted ? 'Sound Off' : 'Sound On'}
+                        </span>
+                        {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -4723,8 +5230,6 @@ export default function App() {
 
       {/* Custom Styles for Silly Fonts */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Bubblegum+Sans&family=Bungee&display=swap');
-        
         body, .font-sans {
           font-family: 'Bubblegum Sans', cursive;
         }
