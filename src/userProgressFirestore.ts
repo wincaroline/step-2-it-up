@@ -90,6 +90,10 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
     practiceTestQuestionCounts: asRecordNum(data.practiceTestQuestionCounts),
     practiceTestPercents: asRecordNum(data.practiceTestPercents),
     questionsToReviewToday: Math.max(0, asNum(data.questionsToReviewToday, base.questionsToReviewToday)),
+    reviewPenaltyMultiplier: Math.max(
+      3,
+      Math.round(asNum(data.reviewPenaltyMultiplier, base.reviewPenaltyMultiplier))
+    ),
     totalQuestionsReviewed: Math.max(0, asNum(data.totalQuestionsReviewed, base.totalQuestionsReviewed)),
     lastAchievedIds: asStrArr(data.lastAchievedIds, base.lastAchievedIds),
     recordDayModalLastShown:
@@ -132,6 +136,7 @@ export function buildProgressFromAppState(args: {
   practiceTestQuestionCounts: Record<string, number>;
   practiceTestPercents: Record<string, number>;
   questionsToReviewToday: number;
+  reviewPenaltyMultiplier: number;
   totalQuestionsReviewed: number;
   lastAchievedIds: string[];
   recordDayModalLastShown?: string | null;
@@ -163,6 +168,7 @@ export function buildProgressFromAppState(args: {
     practiceTestQuestionCounts: args.practiceTestQuestionCounts,
     practiceTestPercents: args.practiceTestPercents,
     questionsToReviewToday: Math.max(0, args.questionsToReviewToday),
+    reviewPenaltyMultiplier: Math.max(3, Math.round(args.reviewPenaltyMultiplier)),
     totalQuestionsReviewed: Math.max(0, args.totalQuestionsReviewed),
     lastAchievedIds: args.lastAchievedIds,
     recordDayModalLastShown,

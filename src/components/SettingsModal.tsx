@@ -21,6 +21,24 @@ const modalPanelSizeClass = 'w-[92vw] sm:w-[86vw] lg:w-[74vw] max-w-[44rem] max-
 const modalShellLayoutClass = 'min-h-0 flex flex-col overflow-hidden';
 const modalBodyScrollClass = 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain';
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** Value for `<input type="datetime-local">` in local time (seconds not shown / zero). */
+function toDatetimeLocalValue(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function parseDatetimeLocal(raw: string): Date | null {
+  const [datePart, timePart] = raw.split('T');
+  if (!datePart || !timePart) return null;
+  const [y, mo, d] = datePart.split('-').map(Number);
+  const [h, m] = timePart.split(':').map(Number);
+  if ([y, mo, d, h, m].some((x) => Number.isNaN(x))) return null;
+  return new Date(y, mo - 1, d, h, m, 0, 0);
+}
+
 export type SettingsModalProps = {
   onRequestClose: () => void;
   examDateKey: string;
@@ -242,17 +260,17 @@ export function SettingsModal({
 
               {isTestMode && (
                 <div className="flex flex-col gap-2 p-4 bg-blue-50 rounded-2xl border-2 border-blue-100">
-                  <div className="text-blue-900 font-black text-xs uppercase tracking-widest">Current Time (Simulated)</div>
+                  <div className="text-blue-900 font-black text-xs uppercase tracking-widest">
+                    Current Date & Time (Simulated)
+                  </div>
                   <div className="flex items-center gap-3">
                     <input
-                      type="time"
-                      className="flex-1 bg-white border-2 border-blue-200 rounded-xl px-4 py-2 font-black text-blue-900 focus:outline-none focus:border-blue-400"
-                      value={`${String(effectiveTime.getHours()).padStart(2, '0')}:${String(effectiveTime.getMinutes()).padStart(2, '0')}`}
+                      type="datetime-local"
+                      className="min-w-0 flex-1 bg-white border-2 border-blue-200 rounded-xl px-4 py-2 font-black text-blue-900 focus:outline-none focus:border-blue-400"
+                      value={toDatetimeLocalValue(effectiveTime)}
                       onChange={(e) => {
-                        const [h, m] = e.target.value.split(':').map(Number);
-                        const newTime = new Date(effectiveTime);
-                        newTime.setHours(h, m);
-                        setSimulatedTime(newTime);
+                        const parsed = parseDatetimeLocal(e.target.value);
+                        if (parsed) setSimulatedTime(parsed);
                       }}
                     />
                     <button

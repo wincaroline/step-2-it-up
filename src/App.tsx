@@ -124,6 +124,9 @@ function bonusPointsForLoggedAccuracy(q: number, percent: number): number {
 /** Minimum spinner duration for feedback submit and sign-out (perceived progress). */
 const MIN_SPINNER_MS = 800;
 
+/** Review countdown uses Q × this value; escalates by +1 each local midnight if reviews stay incomplete. */
+const REVIEW_PENALTY_BASE_MULTIPLIER = 3;
+
 /** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
 const NO_ACHIEVEMENT_CELEBRATION_IDS = new Set(['plankton']);
 const PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY = 'preLoginProgressBackupV1';
@@ -394,6 +397,13 @@ export default function App() {
     const parsed = saved ? parseInt(saved, 10) : 0;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   });
+  const [reviewPenaltyMultiplier, setReviewPenaltyMultiplier] = useState(() => {
+    if (typeof window === 'undefined') return REVIEW_PENALTY_BASE_MULTIPLIER;
+    const saved = localStorage.getItem('reviewPenaltyMultiplier');
+    if (saved == null) return REVIEW_PENALTY_BASE_MULTIPLIER;
+    const n = parseInt(saved, 10);
+    return Number.isFinite(n) && n >= REVIEW_PENALTY_BASE_MULTIPLIER ? n : REVIEW_PENALTY_BASE_MULTIPLIER;
+  });
   const [displayQuestionsToReview, setDisplayQuestionsToReview] = useState(questionsToReviewToday);
   const [isReviewCountdownActive, setIsReviewCountdownActive] = useState(false);
   const [reviewZeroTransitionPhase, setReviewZeroTransitionPhase] = useState<'zero' | null>(null);
@@ -434,6 +444,10 @@ export default function App() {
   const practiceTestEntryFirstInputRef = useRef<HTMLInputElement>(null);
   /** Tracks calendar day for `todayKey` so we can reset daily counts at local midnight (or when simulated time jumps). */
   const prevCalendarDayKeyRef = useRef<string | null>(null);
+  const questionsToReviewTodayRef = useRef(questionsToReviewToday);
+  questionsToReviewTodayRef.current = questionsToReviewToday;
+  const reviewPenaltyMultiplierRef = useRef(reviewPenaltyMultiplier);
+  reviewPenaltyMultiplierRef.current = reviewPenaltyMultiplier;
   const [practiceScoreSpotlight, setPracticeScoreSpotlight] = useState<{
     dateKey: string;
     testNumber: number;
@@ -598,6 +612,9 @@ export default function App() {
     setPracticeTestQuestionCounts(p.practiceTestQuestionCounts);
     setPracticeTestPercents(p.practiceTestPercents);
     setQuestionsToReviewToday(Math.max(0, p.questionsToReviewToday ?? 0));
+    setReviewPenaltyMultiplier(
+      Math.max(REVIEW_PENALTY_BASE_MULTIPLIER, Math.round(p.reviewPenaltyMultiplier ?? REVIEW_PENALTY_BASE_MULTIPLIER))
+    );
     setTotalQuestionsReviewed(Math.max(0, p.totalQuestionsReviewed ?? 0));
     setLastAchievedIds(mergeDefaultSeenAchievementIds(p.lastAchievedIds));
     setExamDateKey(p.examDateKey);
@@ -630,6 +647,7 @@ export default function App() {
         practiceTestQuestionCounts,
         practiceTestPercents,
         questionsToReviewToday,
+        reviewPenaltyMultiplier,
         totalQuestionsReviewed,
         lastAchievedIds,
         examDateKey,
@@ -652,6 +670,7 @@ export default function App() {
       practiceTestQuestionCounts,
       practiceTestPercents,
       questionsToReviewToday,
+      reviewPenaltyMultiplier,
       totalQuestionsReviewed,
       lastAchievedIds,
       examDateKey,
@@ -883,27 +902,12 @@ export default function App() {
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
 
-  /** Run before `useEffect` so `dailyQuestions` is reset before any effect can write stale counts into `history[todayKey]`. */
-  useLayoutEffect(() => {
-    const prev = prevCalendarDayKeyRef.current;
-    if (prev === null) {
-      prevCalendarDayKeyRef.current = todayKey;
-      return;
-    }
-    if (prev === todayKey) return;
-
-    prevCalendarDayKeyRef.current = todayKey;
-    const countForDay = history[todayKey];
-    setDailyQuestions(typeof countForDay === 'number' ? Math.max(0, countForDay) : 0);
-    setQuestionsToReviewToday(0);
-  }, [todayKey, history]);
-
   useEffect(() => {
     if (isBpCountupActive) return;
     setDisplayBonusPointsEarnedToday(bonusPointsEarnedToday);
   }, [bonusPointsEarnedToday, isBpCountupActive]);
 
-  const reviewMidnightCountdownLabel = useMemo(() => {
+  const reviewMidnightCountdownEl = useMemo(() => {
     const q = displayQuestionsToReview;
     if (q <= 0) return null;
     const now = effectiveTime;
@@ -914,9 +918,27 @@ export default function App() {
     const m = Math.floor((totalSec % 3600) / 60);
     const s = totalSec % 60;
     const pad = (n: number) => String(n).padStart(2, '0');
-    const totalBpAtRisk = q * 3;
-    return `${pad(h)}:${pad(m)}:${pad(s)} till you lose ${totalBpAtRisk} BP (${q} x 3)!!`;
-  }, [effectiveTime, displayQuestionsToReview]);
+    const timeStr = `${pad(h)}:${pad(m)}:${pad(s)}`;
+    const mult = reviewPenaltyMultiplier;
+    const totalBpAtRisk = q * mult;
+    const fillerClass = 'font-bold text-[10px] sm:text-xs tracking-wide text-white';
+    const accentClass = `inline-block font-semibold text-sm sm:text-base tabular-nums tracking-wide drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)] ${
+      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
+    }`;
+    return (
+      <>
+        <span className={accentClass}>{timeStr}</span>
+        <span className={fillerClass}> till you lose </span>
+        <span className={accentClass}>
+          {totalBpAtRisk} BP
+        </span>
+        <span className={fillerClass}>
+          {' '}
+          ({q} x {mult})!!
+        </span>
+      </>
+    );
+  }, [effectiveTime, displayQuestionsToReview, reviewPenaltyMultiplier, isWarningMode]);
 
   const practiceTestChartSeries = useMemo(
     () => buildPracticeTestChartSeries(practiceTestCompletionDates, practiceTestScores),
@@ -1397,6 +1419,10 @@ export default function App() {
   }, [questionsToReviewToday]);
 
   useEffect(() => {
+    localStorage.setItem('reviewPenaltyMultiplier', reviewPenaltyMultiplier.toString());
+  }, [reviewPenaltyMultiplier]);
+
+  useEffect(() => {
     localStorage.setItem('totalQuestionsReviewed', totalQuestionsReviewed.toString());
   }, [totalQuestionsReviewed]);
 
@@ -1405,6 +1431,34 @@ export default function App() {
     setBonusPoints((prev) => Math.max(0, prev + delta));
     setBonusPointsHistory((prev) => mergeBonusPointsHistoryDay(prev, dateKey, delta));
   }, []);
+
+  /** Run before `useEffect` so `dailyQuestions` is reset before any effect can write stale counts into `history[todayKey]`.
+   * At local midnight (or simulated day jump): deduct BP for unanswered reviews, escalate multiplier on failure, reset countdown for the new day. */
+  useLayoutEffect(() => {
+    const prevDayKey = prevCalendarDayKeyRef.current;
+    if (prevDayKey === null) {
+      prevCalendarDayKeyRef.current = todayKey;
+      return;
+    }
+    if (prevDayKey === todayKey) return;
+
+    const pendingReview = questionsToReviewTodayRef.current;
+    const mult = reviewPenaltyMultiplierRef.current;
+
+    prevCalendarDayKeyRef.current = todayKey;
+
+    if (pendingReview > 0) {
+      const penalty = pendingReview * mult;
+      adjustBonusPointsForDay(prevDayKey, -penalty);
+      setReviewPenaltyMultiplier(mult + 1);
+    } else {
+      setReviewPenaltyMultiplier(REVIEW_PENALTY_BASE_MULTIPLIER);
+    }
+
+    const countForDay = history[todayKey];
+    setDailyQuestions(typeof countForDay === 'number' ? Math.max(0, countForDay) : 0);
+    setQuestionsToReviewToday(0);
+  }, [todayKey, history, adjustBonusPointsForDay]);
 
   useEffect(() => {
     localStorage.setItem('isTestMode', isTestMode.toString());
@@ -1953,6 +2007,7 @@ export default function App() {
     setBonusPoints(0);
     setBonusPointsHistory({});
     setQuestionsToReviewToday(0);
+    setReviewPenaltyMultiplier(REVIEW_PENALTY_BASE_MULTIPLIER);
     setTotalQuestionsReviewed(0);
     setLastLevel(0);
     setPracticeTestCompletionDates({});
@@ -3038,13 +3093,9 @@ export default function App() {
                 >
                   Log Review
                 </button>
-                {reviewMidnightCountdownLabel !== null && (
-                  <p
-                    className={`max-w-[18rem] text-[10px] sm:text-xs font-bold tabular-nums tracking-wide text-center leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)] ${
-                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
-                    }`}
-                  >
-                    {reviewMidnightCountdownLabel}
+                {reviewMidnightCountdownEl !== null && (
+                  <p className="max-w-[18rem] text-center leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
+                    {reviewMidnightCountdownEl}
                   </p>
                 )}
               </div>
@@ -3550,13 +3601,9 @@ export default function App() {
                 >
                   Log Review
                 </button>
-                {reviewMidnightCountdownLabel !== null && (
-                  <p
-                    className={`max-w-[18rem] text-[10px] sm:text-xs font-bold tabular-nums tracking-wide text-center leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)] ${
-                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
-                    }`}
-                  >
-                    {reviewMidnightCountdownLabel}
+                {reviewMidnightCountdownEl !== null && (
+                  <p className="max-w-[18rem] text-center leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
+                    {reviewMidnightCountdownEl}
                   </p>
                 )}
               </div>
