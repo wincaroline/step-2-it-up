@@ -1385,6 +1385,44 @@ export default function App() {
   ]);
 
   const daysUntilExam = Math.ceil((examCalendarDate.getTime() - effectiveTime.getTime()) / (1000 * 60 * 60 * 24));
+  const renderStep2Countdown = (visibilityClass: string, headingId: string) => (
+    <motion.section
+      {...mainSectionLoadProps}
+      className={`section-panel-ocean-frost relative overflow-hidden rounded-[3rem] px-4 py-3 sm:px-5 sm:py-3 flex flex-row items-center justify-center ${visibilityClass}`}
+      aria-labelledby={headingId}
+    >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-[3rem] bg-gradient-to-br from-[#FF6B4A]/35 via-orange-400/12 to-cyan-400/18"
+      />
+      {(isWarningMode || isSleepMode) && (
+        <div
+          aria-hidden
+          className={`pointer-events-none absolute inset-0 rounded-[3rem] animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
+        />
+      )}
+      <div className="relative z-10 flex flex-row flex-nowrap items-center justify-center gap-2 sm:gap-3 w-full min-w-0">
+        <Calendar
+          className={`w-6 h-6 shrink-0 drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)] ${
+            isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-400' : 'text-[#FFAB91]'
+          }`}
+        />
+        <p
+          className={`shrink-0 text-3xl sm:text-4xl font-black tabular-nums leading-none tracking-tight drop-shadow-[0_8px_20px_rgba(0,0,0,0.4)] ${
+            isSleepMode ? 'text-blue-200/90' : isWarningMode ? 'text-white/90' : 'text-[#FFAB91]'
+          }`}
+        >
+          {daysUntilExam}
+        </p>
+        <h2
+          id={headingId}
+          className="text-center text-[10px] sm:text-[11px] uppercase font-black tracking-[0.18em] sm:tracking-[0.22em] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)] leading-none whitespace-nowrap"
+        >
+          Days Till Step 2
+        </h2>
+      </div>
+    </motion.section>
+  );
   const modalPanelSizeClass = 'w-[92vw] sm:w-[86vw] lg:w-[74vw] max-w-[44rem] max-h-[90dvh]';
   /** Outer modal frame: clips to rounded border; scrolling happens in a child using {@link modalBodyScrollClass}. */
   const modalShellLayoutClass = 'min-h-0 flex flex-col overflow-hidden';
@@ -2956,6 +2994,7 @@ export default function App() {
         
         {/* Left Column: Progress & Actions */}
         <div className="flex flex-col gap-8">
+          {renderStep2Countdown('min-[600px]:hidden w-full', 'step2-countdown-heading-mobile')}
           {/* Question Tracker — uses `.section-panel-ocean-frost` (see index.css) */}
           <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6">
             {(isWarningMode || isSleepMode) && (
@@ -3338,22 +3377,6 @@ export default function App() {
                   Questions Reviewed
                 </span>
               </div>
-              <div className="flex flex-col items-center text-center">
-                <div className="flex items-center gap-2">
-                  <Calendar
-                    className={`w-6 h-6 drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)] ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-[#FF8A65]'}`}
-                  />
-                  <span
-                    className={`text-4xl font-black drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)] ${isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'}`}
-                  >
-                    {daysUntilExam}
-                  </span>
-                </div>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
-                  Days Till Step 2
-                </span>
-              </div>
-              
               {/* New Row */}
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
@@ -3529,6 +3552,7 @@ export default function App() {
 
         {/* Right Column: Level & Stats */}
         <div className="flex flex-col gap-8">
+          {renderStep2Countdown('hidden min-[600px]:block w-full', 'step2-countdown-heading-desktop')}
           {(isWarningMode || isSleepMode) && (
             <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex w-full flex-col items-center text-center gap-6 font-serious">
               <div
