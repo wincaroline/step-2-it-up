@@ -903,6 +903,21 @@ export default function App() {
     setDisplayBonusPointsEarnedToday(bonusPointsEarnedToday);
   }, [bonusPointsEarnedToday, isBpCountupActive]);
 
+  const reviewMidnightCountdownLabel = useMemo(() => {
+    const q = displayQuestionsToReview;
+    if (q <= 0) return null;
+    const now = effectiveTime;
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    const ms = Math.max(0, endOfDay.getTime() - now.getTime());
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const totalBpAtRisk = q * 3;
+    return `${pad(h)}:${pad(m)}:${pad(s)} till you lose ${totalBpAtRisk} BP (${q} x 3)!!`;
+  }, [effectiveTime, displayQuestionsToReview]);
+
   const practiceTestChartSeries = useMemo(
     () => buildPracticeTestChartSeries(practiceTestCompletionDates, practiceTestScores),
     [practiceTestCompletionDates, practiceTestScores]
@@ -1677,10 +1692,6 @@ export default function App() {
   };
 
   const triggerBpPulse = (fromBp: number | null = null, toBp: number | null = null) => {
-    if (bpPulseStartDelayTimeoutRef.current) {
-      window.clearTimeout(bpPulseStartDelayTimeoutRef.current);
-      bpPulseStartDelayTimeoutRef.current = null;
-    }
     if (
       fromBp !== null &&
       toBp !== null &&
@@ -1720,11 +1731,22 @@ export default function App() {
     }, 800);
   };
 
+  const BP_PULSE_AFTER_REVIEW_COUNTDOWN_MS = 400;
+
+  const scheduleBpPulseAfterReviewDelay = (fromBp: number, toBp: number) => {
+    if (bpPulseStartDelayTimeoutRef.current) {
+      window.clearTimeout(bpPulseStartDelayTimeoutRef.current);
+    }
+    bpPulseStartDelayTimeoutRef.current = window.setTimeout(() => {
+      triggerBpPulse(fromBp, toBp);
+      bpPulseStartDelayTimeoutRef.current = null;
+    }, BP_PULSE_AFTER_REVIEW_COUNTDOWN_MS);
+  };
+
   const animateReviewCountdown = (
     from: number,
     to: number,
-    bpFromForPulse: number,
-    bpToForPulse: number
+    pendingBpPulse: { fromBp: number; toBp: number } | null = null
   ) => {
     const maybeShowReviewCompleteModal = () => {
       if (to !== 0) return;
@@ -1740,20 +1762,15 @@ export default function App() {
       }, 400);
     };
 
-    const triggerBpPulseWithDelay = () => {
-      if (bpPulseStartDelayTimeoutRef.current) {
-        window.clearTimeout(bpPulseStartDelayTimeoutRef.current);
-      }
-      bpPulseStartDelayTimeoutRef.current = window.setTimeout(() => {
-        triggerBpPulse(bpFromForPulse, bpToForPulse);
-        bpPulseStartDelayTimeoutRef.current = null;
-      }, 400);
+    const runAfterQuestionsAnimation = () => {
+      if (!pendingBpPulse || pendingBpPulse.toBp <= pendingBpPulse.fromBp) return;
+      scheduleBpPulseAfterReviewDelay(pendingBpPulse.fromBp, pendingBpPulse.toBp);
     };
 
     if (from <= to) {
       setDisplayQuestionsToReview(to);
       maybeShowReviewCompleteModal();
-      triggerBpPulseWithDelay();
+      runAfterQuestionsAnimation();
       return;
     }
     setIsReviewCountdownActive(true);
@@ -1768,7 +1785,7 @@ export default function App() {
         setDisplayQuestionsToReview(to);
         setIsReviewCountdownActive(false);
         maybeShowReviewCompleteModal();
-        triggerBpPulseWithDelay();
+        runAfterQuestionsAnimation();
         return;
       }
       setDisplayQuestionsToReview(current);
@@ -1780,12 +1797,22 @@ export default function App() {
     if (!Number.isFinite(n) || n <= 0) return;
     const prevQuestionsToReview = questionsToReviewToday;
     const nextQuestionsToReview = Math.max(0, prevQuestionsToReview - n);
+    const bpDelta = 2 * n;
     const prevBpEarnedToday = bonusPointsEarnedToday;
-    const nextBpEarnedToday = prevBpEarnedToday + n;
-    adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), n);
+    const nextBpEarnedToday = prevBpEarnedToday + bpDelta;
+    if (bpPulseStartDelayTimeoutRef.current) {
+      window.clearTimeout(bpPulseStartDelayTimeoutRef.current);
+      bpPulseStartDelayTimeoutRef.current = null;
+    }
+    setIsBpCountupActive(true);
+    setDisplayBonusPointsEarnedToday(prevBpEarnedToday);
+    adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), bpDelta);
     setQuestionsToReviewToday(nextQuestionsToReview);
     setTotalQuestionsReviewed((prev) => prev + n);
-    animateReviewCountdown(prevQuestionsToReview, nextQuestionsToReview, prevBpEarnedToday, nextBpEarnedToday);
+    animateReviewCountdown(prevQuestionsToReview, nextQuestionsToReview, {
+      fromBp: prevBpEarnedToday,
+      toBp: nextBpEarnedToday,
+    });
     setShowLogReviewModal(false);
     setLogReviewQuestionDraft('');
   };
@@ -1800,17 +1827,22 @@ export default function App() {
       if (reviewedNow <= 0) return;
       const nextQuestionsToReview = Math.max(0, prevQuestionsToReview - reviewedNow);
 
+      const bpDelta = 2 * reviewedNow;
       const prevBpEarnedToday = bonusPointsEarnedToday;
-      const nextBpEarnedToday = prevBpEarnedToday + reviewedNow;
-      adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), reviewedNow);
+      const nextBpEarnedToday = prevBpEarnedToday + bpDelta;
+      if (bpPulseStartDelayTimeoutRef.current) {
+        window.clearTimeout(bpPulseStartDelayTimeoutRef.current);
+        bpPulseStartDelayTimeoutRef.current = null;
+      }
+      setIsBpCountupActive(true);
+      setDisplayBonusPointsEarnedToday(prevBpEarnedToday);
+      adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), bpDelta);
       setQuestionsToReviewToday(nextQuestionsToReview);
       setTotalQuestionsReviewed((prev) => prev + reviewedNow);
-      animateReviewCountdown(
-        prevQuestionsToReview,
-        nextQuestionsToReview,
-        prevBpEarnedToday,
-        nextBpEarnedToday
-      );
+      animateReviewCountdown(prevQuestionsToReview, nextQuestionsToReview, {
+        fromBp: prevBpEarnedToday,
+        toBp: nextBpEarnedToday,
+      });
       return;
     }
 
@@ -2992,19 +3024,30 @@ export default function App() {
                   reviewCount={questionsToReviewToday}
                 />
               </div>
-              <button
-                type="button"
-                onClick={openLogReviewModal}
-                className={`relative z-10 question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
-                  isSleepMode
-                    ? 'bg-slate-700/80 text-white hover:bg-slate-600'
-                    : isWarningMode
-                      ? 'bg-red-950/80 text-white hover:bg-red-900'
-                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
-                }`}
-              >
-                Log Review
-              </button>
+              <div className="relative z-10 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openLogReviewModal}
+                  className={`question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
+                    isSleepMode
+                      ? 'bg-slate-700/80 text-white hover:bg-slate-600'
+                      : isWarningMode
+                        ? 'bg-red-950/80 text-white hover:bg-red-900'
+                        : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
+                  }`}
+                >
+                  Log Review
+                </button>
+                {reviewMidnightCountdownLabel !== null && (
+                  <p
+                    className={`max-w-[18rem] text-[10px] sm:text-xs font-bold tabular-nums tracking-wide text-center leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)] ${
+                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
+                    }`}
+                  >
+                    {reviewMidnightCountdownLabel}
+                  </p>
+                )}
+              </div>
             </motion.section>
           )}
 
@@ -3493,19 +3536,30 @@ export default function App() {
                   reviewCount={questionsToReviewToday}
                 />
               </div>
-              <button
-                type="button"
-                onClick={openLogReviewModal}
-                className={`relative z-10 question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
-                  isSleepMode
-                    ? 'bg-slate-700/80 text-white hover:bg-slate-600'
-                    : isWarningMode
-                      ? 'bg-red-950/80 text-white hover:bg-red-900'
-                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
-                }`}
-              >
-                Log Review
-              </button>
+              <div className="relative z-10 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openLogReviewModal}
+                  className={`question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
+                    isSleepMode
+                      ? 'bg-slate-700/80 text-white hover:bg-slate-600'
+                      : isWarningMode
+                        ? 'bg-red-950/80 text-white hover:bg-red-900'
+                        : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
+                  }`}
+                >
+                  Log Review
+                </button>
+                {reviewMidnightCountdownLabel !== null && (
+                  <p
+                    className={`max-w-[18rem] text-[10px] sm:text-xs font-bold tabular-nums tracking-wide text-center leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)] ${
+                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
+                    }`}
+                  >
+                    {reviewMidnightCountdownLabel}
+                  </p>
+                )}
+              </div>
             </motion.section>
           )}
 

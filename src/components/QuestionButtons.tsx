@@ -114,29 +114,33 @@ export const QuestionButtons = React.memo(function QuestionButtons({
   }
 
   return (
-    <div className="flex flex-nowrap items-stretch gap-1 sm:gap-1.5 w-full min-w-0">
-      {isTestMode && (
-        <button type="button" onClick={() => onUpdate(-100)} className={getButtonClass(-100)}>
-          -100
+    <div className="flex flex-nowrap items-stretch gap-2 w-full min-w-0">
+      <div className="flex flex-nowrap items-stretch gap-1 sm:gap-1.5 flex-1 min-w-0">
+        {isTestMode && (
+          <button type="button" onClick={() => onUpdate(-100)} className={getButtonClass(-100)}>
+            -100
+          </button>
+        )}
+        <button type="button" onClick={() => onUpdate(-10)} className={getButtonClass(-10)}>
+          -10
         </button>
-      )}
-      <button type="button" onClick={() => onUpdate(-10)} className={getButtonClass(-10)}>
-        -10
-      </button>
-      <button type="button" onClick={() => onUpdate(-1)} className={getButtonClass(-1)}>
-        -1
-      </button>
-      <button type="button" onClick={() => onUpdate(1)} className={`${getButtonClass(1)} ${getOpacity(1)}`}>
-        +1
-      </button>
-      <button type="button" onClick={() => onUpdate(10)} className={`${getButtonClass(10)} ${getOpacity(10)}`}>
-        +10
-      </button>
-      {isTestMode && (
-        <button type="button" onClick={() => onUpdate(100)} className={`${getButtonClass(100)} ${getOpacity(100)}`}>
-          +100
+        <button type="button" onClick={() => onUpdate(-1)} className={getButtonClass(-1)}>
+          -1
         </button>
-      )}
+      </div>
+      <div className="flex flex-nowrap items-stretch gap-1 sm:gap-1.5 flex-1 min-w-0">
+        <button type="button" onClick={() => onUpdate(1)} className={`${getButtonClass(1)} ${getOpacity(1)}`}>
+          +1
+        </button>
+        <button type="button" onClick={() => onUpdate(10)} className={`${getButtonClass(10)} ${getOpacity(10)}`}>
+          +10
+        </button>
+        {isTestMode && (
+          <button type="button" onClick={() => onUpdate(100)} className={`${getButtonClass(100)} ${getOpacity(100)}`}>
+            +100
+          </button>
+        )}
+      </div>
     </div>
   );
 });
