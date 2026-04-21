@@ -1790,6 +1790,41 @@ export default function App() {
     setLogReviewQuestionDraft('');
   };
 
+  const adjustQuestionsToReviewFromButtons = (amount: number) => {
+    if (amount === 0) return;
+
+    if (amount < 0) {
+      const prevQuestionsToReview = questionsToReviewToday;
+      const decrement = Math.abs(amount);
+      const reviewedNow = Math.min(prevQuestionsToReview, decrement);
+      if (reviewedNow <= 0) return;
+      const nextQuestionsToReview = Math.max(0, prevQuestionsToReview - reviewedNow);
+
+      const prevBpEarnedToday = bonusPointsEarnedToday;
+      const nextBpEarnedToday = prevBpEarnedToday + reviewedNow;
+      adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), reviewedNow);
+      setQuestionsToReviewToday(nextQuestionsToReview);
+      setTotalQuestionsReviewed((prev) => prev + reviewedNow);
+      triggerBpPulse(prevBpEarnedToday, nextBpEarnedToday);
+      if (nextQuestionsToReview === 0) {
+        setReviewZeroTransitionPhase('zero');
+        if (reviewZeroHoldTimeoutRef.current) {
+          window.clearTimeout(reviewZeroHoldTimeoutRef.current);
+        }
+        reviewZeroHoldTimeoutRef.current = window.setTimeout(() => {
+          setReviewZeroTransitionPhase(null);
+          setShowReviewCompleteModal(true);
+          triggerFireworks();
+          reviewZeroHoldTimeoutRef.current = null;
+        }, 400);
+      }
+      return;
+    }
+
+    setReviewZeroTransitionPhase(null);
+    setQuestionsToReviewToday((prev) => prev + amount);
+  };
+
   const triggerModerateCelebration = useCallback(() => {
     confetti({
       particleCount: 100,
@@ -2914,6 +2949,72 @@ export default function App() {
             )}
           </motion.section>
 
+          {(displayQuestionsToReview > 0 || isReviewCountdownActive || reviewZeroTransitionPhase !== null) && (
+            <motion.section
+              {...mainSectionLoadProps}
+              className="section-panel-ocean-frost relative overflow-hidden rounded-[3rem] p-6 flex min-[600px]:hidden w-full flex-col items-center justify-center text-center gap-4"
+            >
+              {isWarningMode && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 rounded-[3rem] bg-red-600/38"
+                />
+              )}
+              <div className="relative z-10 flex flex-col items-center text-center gap-3">
+                {reviewZeroTransitionPhase === null && (
+                  <p
+                    className={`text-6xl font-black tabular-nums leading-none drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)] ${
+                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
+                    }`}
+                  >
+                    {displayQuestionsToReview}
+                  </p>
+                )}
+                {reviewZeroTransitionPhase !== null && (
+                  <motion.p
+                    key="review-zero-mobile"
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    className={`text-6xl font-black tabular-nums leading-none drop-shadow-[0_8px_20px_rgba(0,0,0,0.35)] ${
+                      isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'
+                    }`}
+                  >
+                    0
+                  </motion.p>
+                )}
+                <span className="text-lg sm:text-xl font-bold opacity-90 tracking-wide text-white">
+                  Questions to Review
+                </span>
+              </div>
+              <div className="relative z-10 w-full">
+                <QuestionButtons
+                  onUpdate={adjustQuestionsToReviewFromButtons}
+                  isTestMode={isTestMode}
+                  isWarningMode={isWarningMode}
+                  isSleepMode={isSleepMode}
+                  compact={true}
+                  reviewLayout={true}
+                  reviewCount={questionsToReviewToday}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={openLogReviewModal}
+                className={`relative z-10 question-count-clay-btn rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.2em] transition-all active:scale-[0.98] whitespace-nowrap ${
+                  isSleepMode
+                    ? 'bg-slate-700/80 text-white hover:bg-slate-600'
+                    : isWarningMode
+                      ? 'bg-red-950/80 text-white hover:bg-red-900'
+                      : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-900 hover:brightness-105'
+                }`}
+              >
+                Log Review
+              </button>
+            </motion.section>
+          )}
+
           {(isWarningMode || isSleepMode) && (
             <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-6 min-[600px]:hidden">
               <div
@@ -3389,6 +3490,17 @@ export default function App() {
                 <span className="text-lg sm:text-xl font-bold opacity-90 tracking-wide text-white">
                   Questions to Review
                 </span>
+              </div>
+              <div className="relative z-10 w-full">
+                <QuestionButtons
+                  onUpdate={adjustQuestionsToReviewFromButtons}
+                  isTestMode={isTestMode}
+                  isWarningMode={isWarningMode}
+                  isSleepMode={isSleepMode}
+                  compact={true}
+                  reviewLayout={true}
+                  reviewCount={questionsToReviewToday}
+                />
               </div>
               <button
                 type="button"
