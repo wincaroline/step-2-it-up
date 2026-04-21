@@ -1,6 +1,12 @@
 import { ACHIEVEMENTS, DAILY_GOAL, LEVELS, LEVEL_VARIANTS } from './constants';
 import { StreakFlameVariant, Achievement } from './types';
 
+/** Clamp daily goal question count to 1–9999; invalid input falls back to {@link DAILY_GOAL}. */
+export function clampDailyGoal(n: number): number {
+  if (!Number.isFinite(n)) return DAILY_GOAL;
+  return Math.min(9999, Math.max(1, Math.round(n)));
+}
+
 /** XP threshold for a main level badge whose `image` matches a row in {@link LEVELS}. */
 function mainLevelXpThreshold(achievement: Achievement): number | null {
   const row = LEVELS.find((l) => l.graphic === achievement.image);

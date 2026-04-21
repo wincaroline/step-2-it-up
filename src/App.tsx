@@ -3,15 +3,11 @@ import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import {
-  Trophy, 
-  ChevronUp, 
-  Zap, 
-  Anchor, 
+  Trophy,
+  Zap,
+  Anchor,
   Star,
-  Volume2,
-  VolumeX,
   Settings,
-  Trash2,
   Calendar,
   X,
   ClipboardCheck,
@@ -20,16 +16,13 @@ import {
   Award,
   Flame,
   LogIn,
-  LogOut,
-  Pencil,
   Flag,
   Check,
   Loader2,
 } from 'lucide-react';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 
-import { app, auth, db } from './firebase';
+import { auth, db } from './firebase';
 import {
   buildProgressFromAppState,
   parseUserProgressDoc,
@@ -60,9 +53,9 @@ import {
   publicAsset,
   graphicAsset,
   buildPracticeTestChartSeries,
-  formatExamDateLabel,
   streakFlameVariantFromCount,
   streakStatNumberColorFromVariant,
+  clampDailyGoal,
 } from './utils';
 import { Bubble, BUBBLE_COUNT_SLEEP, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
@@ -70,6 +63,8 @@ import { AchievementsSection } from './components/AchievementsSection';
 import { QuestionButtons } from './components/QuestionButtons';
 import { PracticeTestScoresChart, type PracticeTestChartPress } from './components/PracticeTestScoresChart';
 import { OnboardingScreen } from './components/OnboardingScreen';
+import { FeedbackSummaryAdminView } from './components/FeedbackSummaryAdminView';
+import { SettingsModal } from './components/SettingsModal';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
@@ -86,27 +81,6 @@ type GreatProgressPendingState = {
   previousScore: number;
   newScore: number;
   highlightDateKey: string;
-};
-
-type FeedbackSummaryResponse = {
-  scannedCount: number;
-  isTruncated: boolean;
-  uniqueUsers: number;
-  totals: {
-    all: number;
-    bug: number;
-    request: number;
-    feedback: number;
-    unknown: number;
-  };
-  topKeywords: Array<{ word: string; count: number }>;
-  recent: Array<{
-    id: string;
-    category: string;
-    uid: string | null;
-    createdAt: string | null;
-    descriptionPreview: string;
-  }>;
 };
 
 function parsePracticeTestBaseQuestionsFromRaw(questionsRaw: string): number {
@@ -128,6 +102,11 @@ function parseOptionalPercentRaw(percentRaw: string): number | undefined {
 /** Accuracy bonus points from % correct: round(q × % / 100). */
 function accuracyBonusPointsFor(q: number, percent: number | undefined): number {
   return percent === undefined ? 0 : Math.round((q * percent) / 100);
+}
+
+/** Same as accuracy bonus except at 100%+, where the tier-100 celebration uses round(q × % × 3 / 100). */
+function bonusPointsForLoggedAccuracy(q: number, percent: number): number {
+  return percent >= 100 ? Math.round((q * percent * 3) / 100) : accuracyBonusPointsFor(q, percent);
 }
 
 /** Minimum spinner duration for feedback submit and sign-out (perceived progress). */
@@ -175,11 +154,6 @@ function hasLocalPriorUsage(): boolean {
     // ignore corrupt storage
   }
   return false;
-}
-
-function clampDailyGoal(n: number): number {
-  if (!Number.isFinite(n)) return DAILY_GOAL;
-  return Math.min(9999, Math.max(1, Math.round(n)));
 }
 
 function mergeBonusPointsHistoryDay(
@@ -512,6 +486,24 @@ export default function App() {
     }
   });
   const [levelMusic, setLevelMusic] = useState<HTMLAudioElement | null>(null);
+  /** Sync source for looped dance music — always set immediately when creating `new Audio(URL_DANCE_MUSIC)`. */
+  const celebrationLoopAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  /** Pauses looped celebration dance audio and clears `levelMusic`; safe to call anytime. */
+  const stopAllCelebrationMusic = useCallback(() => {
+    const el = celebrationLoopAudioRef.current;
+    celebrationLoopAudioRef.current = null;
+    el?.pause();
+    if (el) el.currentTime = 0;
+    setLevelMusic((prev) => {
+      if (prev && prev !== el) {
+        prev.pause();
+        prev.currentTime = 0;
+      }
+      return null;
+    });
+  }, []);
+
   const [simulatedTime, setSimulatedTime] = useState<Date | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -519,9 +511,6 @@ export default function App() {
   const [authResolved, setAuthResolved] = useState(false);
   const [authActionPending, setAuthActionPending] = useState(false);
   const shouldOfferRestoreAfterSignOutRef = useRef(false);
-  const [feedbackSummaryLoading, setFeedbackSummaryLoading] = useState(false);
-  const [feedbackSummaryError, setFeedbackSummaryError] = useState<string | null>(null);
-  const [feedbackSummaryData, setFeedbackSummaryData] = useState<FeedbackSummaryResponse | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -736,6 +725,7 @@ export default function App() {
   }, [firebaseUser, readPreLoginBackupProgress]);
 
   const handleRestorePreLoginData = useCallback(() => {
+    stopAllCelebrationMusic();
     const backup = readPreLoginBackupProgress();
     setShowRestorePreLoginDataModal(false);
     if (!backup) return;
@@ -745,33 +735,15 @@ export default function App() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY);
     }
-  }, [applyProgressFromCloud, readPreLoginBackupProgress]);
+  }, [applyProgressFromCloud, readPreLoginBackupProgress, stopAllCelebrationMusic]);
 
   const handleKeepSignedOutData = useCallback(() => {
+    stopAllCelebrationMusic();
     setShowRestorePreLoginDataModal(false);
     if (typeof window !== 'undefined') {
       localStorage.removeItem(PRE_LOGIN_PROGRESS_BACKUP_STORAGE_KEY);
     }
-  }, []);
-
-  const fetchFeedbackSummary = useCallback(async () => {
-    setFeedbackSummaryLoading(true);
-    setFeedbackSummaryError(null);
-    try {
-      const functions = getFunctions(app);
-      const callable = httpsCallable(functions, 'getFeedbackSummary');
-      const result = await callable();
-      setFeedbackSummaryData(result.data as FeedbackSummaryResponse);
-    } catch (err) {
-      console.error('Failed to load feedback summary', err);
-      setFeedbackSummaryError(
-        'Unable to load feedback summary. Make sure this account has the admin custom claim and the function is deployed.'
-      );
-      setFeedbackSummaryData(null);
-    } finally {
-      setFeedbackSummaryLoading(false);
-    }
-  }, []);
+  }, [stopAllCelebrationMusic]);
 
   const openFeedbackSummaryTab = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -881,17 +853,6 @@ export default function App() {
     }, 900);
     return () => window.clearTimeout(t);
   }, [firebaseUser, cloudFirestoreReady, progressSnapshot]);
-
-  useEffect(() => {
-    if (!isFeedbackSummaryView) return;
-    if (!authResolved) return;
-    if (!firebaseUser) {
-      setFeedbackSummaryError('Sign in with Google using an admin account to view feedback summary.');
-      setFeedbackSummaryData(null);
-      return;
-    }
-    void fetchFeedbackSummary();
-  }, [isFeedbackSummaryView, authResolved, firebaseUser, fetchFeedbackSummary]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1029,7 +990,9 @@ export default function App() {
         triggerFireworks();
 
         if (!isMuted) {
+          celebrationLoopAudioRef.current?.pause();
           const music = new Audio(URL_DANCE_MUSIC);
+          celebrationLoopAudioRef.current = music;
           music.loop = true;
           music.volume = 0.5;
           music.play().catch(err => console.error("Achievement music failed:", err));
@@ -1655,10 +1618,7 @@ export default function App() {
     if (queuedAchievements.length > 0 && selectedHistoryDate) {
       setSelectedAchievement(null);
       setShowAchievementCelebration(false);
-      if (levelMusic) {
-        levelMusic.pause();
-        setLevelMusic(null);
-      }
+      stopAllCelebrationMusic();
       return;
     }
     if (queuedAchievements.length > 0) {
@@ -1667,10 +1627,7 @@ export default function App() {
         setQueuedAchievements([]);
         setSelectedAchievement(null);
         setShowAchievementCelebration(false);
-        if (levelMusic) {
-          levelMusic.pause();
-          setLevelMusic(null);
-        }
+        stopAllCelebrationMusic();
         return;
       }
       const [next, ...rest] = celebrationQueue;
@@ -1681,10 +1638,7 @@ export default function App() {
     }
     setSelectedAchievement(null);
     setShowAchievementCelebration(false);
-    if (levelMusic) {
-      levelMusic.pause();
-      setLevelMusic(null);
-    }
+    stopAllCelebrationMusic();
   };
 
   const openLogSetModal = () => {
@@ -1839,7 +1793,7 @@ export default function App() {
     const percent = percentInput === '' ? null : parseFloat(percentInput.replace(/,/g, ''));
     if (percent !== null && (!Number.isFinite(percent) || percent < 0 || percent > 100)) return;
 
-    const bonusPts = percent === null ? 0 : Math.round((n * percent) / 100);
+    const bonusPts = percent === null ? 0 : bonusPointsForLoggedAccuracy(n, percent);
     const newDailyTotal = dailyQuestions + n;
     flushSync(() => {
       if (bonusPts > 0) {
@@ -1899,7 +1853,28 @@ export default function App() {
     setPendingLogSetTier(null);
   }, [pendingLogSetTier, showLogWinCelebrateModal, showAchievementCelebration, selectedAchievement, logWinCelebrate, triggerModerateCelebration]);
 
+  useEffect(() => {
+    if (!showLogWinCelebrateModal || !logWinCelebrate || logWinCelebrate.tier !== 100 || isMuted) return;
+
+    celebrationLoopAudioRef.current?.pause();
+    const music = new Audio(URL_DANCE_MUSIC);
+    celebrationLoopAudioRef.current = music;
+    music.loop = true;
+    music.volume = 0.5;
+    setLevelMusic((prev) => {
+      prev?.pause();
+      if (prev) prev.currentTime = 0;
+      return music;
+    });
+    music.play().catch((err) => console.error('Log win celebration music failed:', err));
+
+    return () => {
+      stopAllCelebrationMusic();
+    };
+  }, [showLogWinCelebrateModal, logWinCelebrate, isMuted, stopAllCelebrationMusic]);
+
   const clearAllData = () => {
+    stopAllCelebrationMusic();
     setDailyQuestions(0);
     setTotalQuestions(0);
     setBonusPoints(0);
@@ -2031,7 +2006,9 @@ export default function App() {
     setShowAchievementCelebration(true);
     triggerFireworks();
     if (!isMuted) {
+      celebrationLoopAudioRef.current?.pause();
       const music = new Audio(URL_DANCE_MUSIC);
+      celebrationLoopAudioRef.current = music;
       music.loop = true;
       music.volume = 0.5;
       music.play().catch((err) => console.error('Achievement music failed:', err));
@@ -2079,7 +2056,9 @@ export default function App() {
     if (!selectedHistoryDate && toCelebrate.length > 0) {
       triggerFireworks();
       if (!isMuted) {
+        celebrationLoopAudioRef.current?.pause();
         const music = new Audio(URL_DANCE_MUSIC);
+        celebrationLoopAudioRef.current = music;
         music.loop = true;
         music.volume = 0.5;
         music.play().catch((err) => console.error('Achievement music failed:', err));
@@ -2377,7 +2356,7 @@ export default function App() {
                 ? 60
                 : null;
     const accuracyBonusPoints =
-      parsedPercent === undefined ? 0 : Math.round((q * parsedPercent) / 100);
+      parsedPercent === undefined ? 0 : bonusPointsForLoggedAccuracy(q, parsedPercent);
 
     flushSync(() => {
       if (accuracyBonusPoints > 0) {
@@ -2613,7 +2592,9 @@ export default function App() {
         triggerFireworks();
 
         if (!isMuted) {
+          celebrationLoopAudioRef.current?.pause();
           const music = new Audio(URL_DANCE_MUSIC);
+          celebrationLoopAudioRef.current = music;
           music.loop = true;
           music.volume = 0.5;
           music.play().catch(err => console.error("Achievement music failed:", err));
@@ -2624,103 +2605,7 @@ export default function App() {
   };
 
   if (isFeedbackSummaryView) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 p-6 sm:p-10 font-sans">
-        <div className="max-w-5xl mx-auto space-y-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Feedback Summary</h1>
-              <p className="text-slate-300 mt-1 text-sm sm:text-base">
-                Admin-only summary from Firestore `feedbackReports`.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void fetchFeedbackSummary()}
-              disabled={feedbackSummaryLoading || !firebaseUser}
-              className="question-count-clay-btn inline-flex items-center gap-2 bg-cyan-600 border-2 border-cyan-800 text-white px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-cyan-700 transition-all disabled:opacity-50"
-            >
-              {feedbackSummaryLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              {feedbackSummaryLoading ? 'Refreshing…' : 'Refresh'}
-            </button>
-          </div>
-
-          {!authResolved && <p className="text-slate-300">Checking sign-in…</p>}
-          {feedbackSummaryError && (
-            <div className="p-4 rounded-xl border border-red-500/40 bg-red-950/40 text-red-200">
-              {feedbackSummaryError}
-            </div>
-          )}
-
-          {feedbackSummaryData && (
-            <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700">
-                  <div className="text-xs uppercase text-slate-400">All</div>
-                  <div className="text-2xl font-black">{feedbackSummaryData.totals.all}</div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700">
-                  <div className="text-xs uppercase text-slate-400">Bug</div>
-                  <div className="text-2xl font-black">{feedbackSummaryData.totals.bug}</div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700">
-                  <div className="text-xs uppercase text-slate-400">Request</div>
-                  <div className="text-2xl font-black">{feedbackSummaryData.totals.request}</div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700">
-                  <div className="text-xs uppercase text-slate-400">Feedback</div>
-                  <div className="text-2xl font-black">{feedbackSummaryData.totals.feedback}</div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700">
-                  <div className="text-xs uppercase text-slate-400">Unique users</div>
-                  <div className="text-2xl font-black">{feedbackSummaryData.uniqueUsers}</div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700">
-                  <div className="text-xs uppercase text-slate-400">Scanned</div>
-                  <div className="text-2xl font-black">{feedbackSummaryData.scannedCount}</div>
-                </div>
-              </div>
-
-              <div className="p-4 sm:p-5 rounded-xl bg-slate-900 border border-slate-700 space-y-3">
-                <h2 className="text-lg font-black">Top Keywords</h2>
-                <div className="flex flex-wrap gap-2">
-                  {feedbackSummaryData.topKeywords.length === 0 ? (
-                    <p className="text-slate-400 text-sm">No keywords yet.</p>
-                  ) : (
-                    feedbackSummaryData.topKeywords.map((k) => (
-                      <span
-                        key={k.word}
-                        className="px-3 py-1 rounded-full bg-slate-800 border border-slate-600 text-xs font-bold"
-                      >
-                        {k.word} ({k.count})
-                      </span>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="p-4 sm:p-5 rounded-xl bg-slate-900 border border-slate-700 space-y-3">
-                <h2 className="text-lg font-black">Recent Reports</h2>
-                <div className="space-y-2">
-                  {feedbackSummaryData.recent.length === 0 ? (
-                    <p className="text-slate-400 text-sm">No feedback reports found.</p>
-                  ) : (
-                    feedbackSummaryData.recent.map((item) => (
-                      <div key={item.id} className="p-3 rounded-lg border border-slate-700 bg-slate-950">
-                        <div className="text-[11px] uppercase tracking-widest text-cyan-300 font-black">
-                          {item.category} {item.createdAt ? `- ${new Date(item.createdAt).toLocaleString()}` : ''}
-                        </div>
-                        <p className="text-sm text-slate-200 mt-1 whitespace-pre-wrap">{item.descriptionPreview}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    );
+    return <FeedbackSummaryAdminView authResolved={authResolved} firebaseUser={firebaseUser} />;
   }
 
   const primaryModalEnterAction = useMemo<(() => void) | null>(() => {
@@ -2729,18 +2614,23 @@ export default function App() {
     }
     if (showGreatProgressModal && greatProgressSnapshot) {
       return () => {
+        stopAllCelebrationMusic();
         setShowGreatProgressModal(false);
         setGreatProgressSnapshot(null);
       };
     }
     if (showLogWinCelebrateModal && logWinCelebrate) {
       return () => {
+        stopAllCelebrationMusic();
         setShowLogWinCelebrateModal(false);
         setLogWinCelebrate(null);
       };
     }
     if (showReviewCompleteModal) {
-      return () => setShowReviewCompleteModal(false);
+      return () => {
+        stopAllCelebrationMusic();
+        setShowReviewCompleteModal(false);
+      };
     }
     if (showPracticeTestEntryModal) {
       return submitPracticeTestEntry;
@@ -2760,10 +2650,16 @@ export default function App() {
       return handleRestorePreLoginData;
     }
     if (showGoalModal) {
-      return () => setShowGoalModal(false);
+      return () => {
+        stopAllCelebrationMusic();
+        setShowGoalModal(false);
+      };
     }
     if (showRecordDayModal) {
-      return () => setShowRecordDayModal(false);
+      return () => {
+        stopAllCelebrationMusic();
+        setShowRecordDayModal(false);
+      };
     }
     return null;
   }, [
@@ -2789,6 +2685,7 @@ export default function App() {
     handleRestorePreLoginData,
     showGoalModal,
     showRecordDayModal,
+    stopAllCelebrationMusic,
   ]);
 
   useEffect(() => {
@@ -2800,7 +2697,6 @@ export default function App() {
       const target = event.target as HTMLElement | null;
       if (target) {
         if (target.closest('textarea,[contenteditable=""],[contenteditable="true"],[contenteditable]')) return;
-        if (target.closest('button,a,[role="button"]')) return;
       }
       event.preventDefault();
       primaryModalEnterAction();
@@ -3882,6 +3778,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
+                  stopAllCelebrationMusic();
                   setShowGreatProgressModal(false);
                   setGreatProgressSnapshot(null);
                 }}
@@ -4278,7 +4175,10 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowReviewCompleteModal(false)}
+                    onClick={() => {
+                      stopAllCelebrationMusic();
+                      setShowReviewCompleteModal(false);
+                    }}
                     className="question-count-clay-btn w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
                   >
                     Nice!
@@ -4403,7 +4303,14 @@ export default function App() {
                           logWinCelebrate.tier === 100 ? 'text-amber-700' : 'text-cyan-700'
                         }`}
                       >
-                        # logged x % correct
+                        {logWinCelebrate.tier === 100 ? (
+                          <>
+                            {'# logged x % correct '}
+                            <span className="font-bold">x 3</span>
+                          </>
+                        ) : (
+                          '# logged x % correct'
+                        )}
                       </span>
                     </div>
                     <span className="font-black tabular-nums text-purple-700">{logWinCelebrate.bonusPointsEarned}</span>
@@ -4432,6 +4339,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
+                    stopAllCelebrationMusic();
                     setShowLogWinCelebrateModal(false);
                     setLogWinCelebrate(null);
                   }}
@@ -4823,410 +4731,43 @@ export default function App() {
 
         {/* Settings Modal */}
         {showSettingsModal && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
-          >
-            <motion.div 
-              initial={{ scale: 0.5, y: 100 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} border-8 border-blue-400 shadow-[0_0_50px_rgba(0,0,0,0.3)] relative`}
-            >
-              <div className={`${modalBodyScrollClass} p-8 space-y-6 custom-scrollbar`} data-modal-scroll="true">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-blue-900 text-3xl font-black uppercase">Settings</h2>
-                  <button 
-                    onClick={() => setShowSettingsModal(false)}
-                    className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                  >
-                    <X className="w-6 h-6 text-gray-400" />
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">General</div>
-                  <div className="flex flex-col gap-3">
-                    <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Exam Date</p>
-                      {editingExamDate ? (
-                        <input
-                          type="date"
-                          value={examDateKey}
-                          onChange={(e) => setExamDateKey(e.target.value || DEFAULT_EXAM_DATE_KEY)}
-                          onBlur={() => setEditingExamDate(false)}
-                          className="w-full bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-black text-blue-950 text-sm">{formatExamDateLabel(examDateKey)}</span>
-                          <button
-                            type="button"
-                            aria-label="Edit exam date"
-                            onClick={() => setEditingExamDate(true)}
-                            className="p-1.5 rounded-lg hover:bg-gray-200/80 text-blue-400 transition-colors"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">
-                        Daily Goal (Questions Per Day)
-                      </p>
-                      {editingDailyGoal ? (
-                        <input
-                          type="number"
-                          min={1}
-                          max={9999}
-                          value={dailyGoalQuestions}
-                          onChange={(e) => {
-                            const n = parseInt(e.target.value, 10);
-                            if (!Number.isNaN(n)) setDailyGoalQuestions(clampDailyGoal(n));
-                          }}
-                          onBlur={() => setEditingDailyGoal(false)}
-                          className="w-full bg-white border-2 border-blue-200 rounded-xl px-3 py-2 font-black text-blue-950 focus:outline-none focus:border-blue-400"
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-black text-blue-950 text-sm">{dailyGoalQuestions} questions</span>
-                          <button
-                            type="button"
-                            aria-label="Edit daily goal"
-                            onClick={() => setEditingDailyGoal(true)}
-                            className="p-1.5 rounded-lg hover:bg-gray-200/80 text-blue-400 transition-colors"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Sound</p>
-                      <button
-                        type="button"
-                        onClick={() => setIsMuted(!isMuted)}
-                        className={`question-count-clay-btn w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${isMuted ? 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100' : 'bg-cyan-50 border-cyan-200 text-cyan-800 hover:bg-cyan-100'}`}
-                        aria-label={isMuted ? 'Turn sound on' : 'Turn sound off'}
-                      >
-                        <span className="font-black text-sm uppercase tracking-wider">
-                          {isMuted ? 'Sound Off' : 'Sound On'}
-                        </span>
-                        {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">Admin</div>
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Zap className="w-5 h-5 text-yellow-500" />
-                        <span className="font-black uppercase text-sm text-blue-900">Admin Mode</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isTestMode) {
-                            exitAdminMode();
-                          } else {
-                            setShowTestCodeInput(true);
-                          }
-                        }}
-                        className={`w-12 h-6 rounded-full transition-colors relative ${isTestMode ? 'bg-green-500' : 'bg-gray-300'}`}
-                      >
-                        <motion.div
-                          animate={{ x: isTestMode ? 24 : 4 }}
-                          className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
-                        />
-                      </button>
-                    </div>
-
-                    {showTestCodeInput && !isTestMode && (
-                      <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
-                        <p className="text-[10px] font-black uppercase text-blue-400">Enter Admin Code</p>
-                        <div className="flex gap-2">
-                          <input
-                            ref={adminCodeInputRef}
-                            type="password"
-                            maxLength={4}
-                            value={testCodeInput}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setTestCodeInput(val);
-                              if (val === '6782') {
-                                setIsTestMode(true);
-                                setShowTestCodeInput(false);
-                                setTestCodeInput('');
-                              }
-                            }}
-                            placeholder="****"
-                            className="w-full min-w-0 bg-white border-2 border-blue-200 rounded-xl px-4 py-2 text-center font-black tracking-[0.5em] text-blue-900 focus:outline-none focus:border-blue-400"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {isTestMode && (
-                      <div className="flex flex-col gap-2 p-4 bg-blue-50 rounded-2xl border-2 border-blue-100">
-                        <div className="text-blue-900 font-black text-xs uppercase tracking-widest">Current Time (Simulated)</div>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="time"
-                            className="flex-1 bg-white border-2 border-blue-200 rounded-xl px-4 py-2 font-black text-blue-900 focus:outline-none focus:border-blue-400"
-                            value={`${String(effectiveTime.getHours()).padStart(2, '0')}:${String(effectiveTime.getMinutes()).padStart(2, '0')}`}
-                            onChange={(e) => {
-                              const [h, m] = e.target.value.split(':').map(Number);
-                              const newTime = new Date(effectiveTime);
-                              newTime.setHours(h, m);
-                              setSimulatedTime(newTime);
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setSimulatedTime(null)}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-xs hover:bg-blue-700 transition-all"
-                          >
-                            RESET
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {isTestMode && (
-                      <div className="flex flex-col gap-2 p-4 bg-purple-50 rounded-2xl border-2 border-purple-100">
-                        <div className="text-purple-900 font-black text-xs uppercase tracking-widest">Simulate Past Streaks</div>
-                        <p className="text-xs text-purple-700 font-medium">
-                          Instantly adds 10 questions/day for the specified duration (ending today) and triggers the achievement!
-                        </p>
-                        <div className="grid grid-cols-3 gap-2 mt-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              simulateStreak(3);
-                              setShowSettingsModal(false);
-                            }}
-                            className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
-                          >
-                            3 Days
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              simulateStreak(5);
-                              setShowSettingsModal(false);
-                            }}
-                            className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
-                          >
-                            5 Days
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              simulateStreak(10);
-                              setShowSettingsModal(false);
-                            }}
-                            className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
-                          >
-                            10 Days
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              simulateStreak(20);
-                              setShowSettingsModal(false);
-                            }}
-                            className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
-                          >
-                            20 Days
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              simulateStreak(30);
-                              setShowSettingsModal(false);
-                            }}
-                            className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
-                          >
-                            30 Days
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              simulateStreak(40);
-                              setShowSettingsModal(false);
-                            }}
-                            className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
-                          >
-                            40 Days
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {isTestMode && (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Zap className="w-5 h-5 text-red-500" />
-                          <span className="font-black uppercase text-sm text-blue-900">Warning Mode</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = !isWarningMode;
-                            setIsWarningMode(next);
-                            if (next) setAdminSleepModeForceOn(false);
-                          }}
-                          className={`w-12 h-6 rounded-full transition-colors relative ${isWarningMode ? 'bg-red-500' : 'bg-gray-300'}`}
-                        >
-                          <motion.div
-                            animate={{ x: isWarningMode ? 24 : 4 }}
-                            className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
-                          />
-                        </button>
-                      </div>
-                    )}
-
-                    {isTestMode && (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Zap className="w-5 h-5 text-slate-500 shrink-0" />
-                          <div className="min-w-0">
-                            <span className="font-black uppercase text-sm text-blue-900 block">Sleep Mode (test)</span>
-                            <span className="text-[10px] font-medium text-gray-500 normal-case tracking-normal">
-                              While Admin Mode is on, only this toggle controls Sleep Mode (natural night window is paused).
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = !adminSleepModeForceOn;
-                            setAdminSleepModeForceOn(next);
-                            if (next) setIsWarningMode(false);
-                          }}
-                          className={`w-12 h-6 shrink-0 rounded-full transition-colors relative ${adminSleepModeForceOn ? 'bg-indigo-500' : 'bg-gray-300'}`}
-                        >
-                          <motion.div
-                            animate={{ x: adminSleepModeForceOn ? 24 : 4 }}
-                            className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
-                          />
-                        </button>
-                      </div>
-                    )}
-
-                    {isTestMode && (
-                      <button
-                        type="button"
-                        onClick={openFeedbackSummaryTab}
-                        className="question-count-clay-btn w-full bg-cyan-600 border-2 border-cyan-800 text-white py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-cyan-700 transition-all"
-                      >
-                        View Feedback
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Daily mission resets automatically via date-based completion */}
-
-                  {isTestMode && (
-                    <>
-                      <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">Danger Zone</div>
-                      
-                      {!isConfirmingClear ? (
-                        <button 
-                          onClick={() => setIsConfirmingClear(true)}
-                          className="w-full flex items-center justify-between p-4 bg-red-50 hover:bg-red-100 text-red-600 rounded-2xl border-2 border-red-100 transition-all group"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Trash2 className="w-5 h-5" />
-                            <span className="font-black uppercase text-sm">Clear All Data</span>
-                          </div>
-                          <ChevronUp className="w-4 h-4 rotate-90 opacity-0 group-hover:opacity-100 transition-all" />
-                        </button>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-xs text-red-600 font-black uppercase text-center animate-pulse">Are you absolutely sure?</p>
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={clearAllData}
-                              className="question-count-clay-btn flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-black text-sm active:scale-95 transition-all"
-                            >
-                              YES, DELETE
-                            </button>
-                            <button 
-                              onClick={() => setIsConfirmingClear(false)}
-                              className="question-count-clay-btn flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 py-3 rounded-xl font-black text-sm active:scale-95 transition-all"
-                            >
-                              CANCEL
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <p className="text-[10px] text-red-400 font-bold px-2 italic">
-                        * This will reset your daily goal, total questions, and levels.
-                      </p>
-                    </>
-                  )}
-
-                <div className="space-y-4">
-                  <div className="text-gray-500 font-bold text-xs uppercase tracking-widest">Account</div>
-                  {!authResolved ? (
-                    <p className="text-sm font-medium text-gray-400">Checking sign-in…</p>
-                  ) : firebaseUser ? (
-                    <div className="flex flex-col gap-3 p-4 bg-sky-50 rounded-2xl border-2 border-sky-100">
-                      <div className="flex items-start gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-sky-600">Signed in</p>
-                          <p className="font-black text-blue-950 truncate text-sm mt-1">
-                            {firebaseUser.email ?? firebaseUser.displayName ?? 'Google user'}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleSignOut}
-                        disabled={authActionPending}
-                        className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-red-600 border-2 border-red-700 text-white py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-red-700 hover:border-red-800 transition-all disabled:opacity-50"
-                      >
-                        {authActionPending ? (
-                          <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
-                        ) : (
-                          <LogOut className="w-4 h-4 shrink-0" />
-                        )}
-                        {authActionPending ? 'Signing out…' : 'Sign out'}
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleContinueWithGoogleClick}
-                      disabled={authActionPending}
-                      className="question-count-clay-btn flex items-center justify-center gap-2 w-full bg-white border-2 border-gray-200 text-gray-800 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50"
-                    >
-                      <LogIn className="w-4 h-4 shrink-0" />
-                      {authActionPending ? 'Opening Google…' : 'Log In with Google'}
-                    </button>
-                  )}
-                </div>
-
-                <button 
-                  onClick={() => setShowSettingsModal(false)}
-                  className="question-count-clay-btn w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
-                >
-                  DONE
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
+          <SettingsModal
+            onRequestClose={() => setShowSettingsModal(false)}
+            examDateKey={examDateKey}
+            setExamDateKey={setExamDateKey}
+            editingExamDate={editingExamDate}
+            setEditingExamDate={setEditingExamDate}
+            dailyGoalQuestions={dailyGoalQuestions}
+            setDailyGoalQuestions={setDailyGoalQuestions}
+            editingDailyGoal={editingDailyGoal}
+            setEditingDailyGoal={setEditingDailyGoal}
+            isMuted={isMuted}
+            setIsMuted={setIsMuted}
+            isTestMode={isTestMode}
+            setIsTestMode={setIsTestMode}
+            exitAdminMode={exitAdminMode}
+            showTestCodeInput={showTestCodeInput}
+            setShowTestCodeInput={setShowTestCodeInput}
+            testCodeInput={testCodeInput}
+            setTestCodeInput={setTestCodeInput}
+            adminCodeInputRef={adminCodeInputRef}
+            effectiveTime={effectiveTime}
+            setSimulatedTime={setSimulatedTime}
+            simulateStreak={simulateStreak}
+            isWarningMode={isWarningMode}
+            setIsWarningMode={setIsWarningMode}
+            adminSleepModeForceOn={adminSleepModeForceOn}
+            setAdminSleepModeForceOn={setAdminSleepModeForceOn}
+            openFeedbackSummaryTab={openFeedbackSummaryTab}
+            isConfirmingClear={isConfirmingClear}
+            setIsConfirmingClear={setIsConfirmingClear}
+            clearAllData={clearAllData}
+            authResolved={authResolved}
+            firebaseUser={firebaseUser}
+            handleSignOut={handleSignOut}
+            authActionPending={authActionPending}
+            handleContinueWithGoogleClick={handleContinueWithGoogleClick}
+          />
         )}
 
         {/* Report feedback */}
@@ -5422,7 +4963,10 @@ export default function App() {
                   <div className="text-cyan-400 text-xs font-bold uppercase tracking-widest">Questions Done Today</div>
                 </div>
                 <button 
-                  onClick={() => setShowGoalModal(false)}
+                  onClick={() => {
+                    stopAllCelebrationMusic();
+                    setShowGoalModal(false);
+                  }}
                   className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
                 >
                   I'll Keep It Up!
@@ -5471,7 +5015,10 @@ export default function App() {
                 </div>
                 <button 
                   type="button"
-                  onClick={() => setShowRecordDayModal(false)}
+                  onClick={() => {
+                    stopAllCelebrationMusic();
+                    setShowRecordDayModal(false);
+                  }}
                   className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
                 >
                   {"Let's Go!"}
