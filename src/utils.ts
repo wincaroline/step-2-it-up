@@ -34,6 +34,7 @@ export function collectAllGraphicAssetUrls(): string[] {
     'rockstarsalmon',
     'doublethumbsupsalmon',
     'surfingsalmon',
+    'vacationsalmon',
   ];
   extras.forEach((n) => names.add(n));
 

@@ -75,7 +75,7 @@ import { OnboardingScreen } from './components/OnboardingScreen';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
-type LogWinTier = 60 | 70 | 80;
+type LogWinTier = 60 | 70 | 80 | 100;
 type LogWinOutcome = LogWinTier | 'effort';
 
 type GreatProgressPendingState = {
@@ -429,6 +429,7 @@ export default function App() {
     bonusPointsEarned: number;
     newDailyTotal: number;
     questionsToReview: number;
+    context: 'logSet' | 'practiceTest';
   } | null>(null);
   const [practiceTestEntryIntent, setPracticeTestEntryIntent] = useState<'completed' | 'adminPlus' | null>(null);
   const [practiceTestEntryQuestions, setPracticeTestEntryQuestions] = useState('');
@@ -1856,7 +1857,17 @@ export default function App() {
     });
     addQuestions(n, undefined, bonusPoints + bonusPts);
     const highestTier: LogWinOutcome | null =
-      percent === null ? null : percent >= 80 ? 80 : percent >= 70 ? 70 : percent >= 60 ? 60 : 'effort';
+      percent === null
+        ? null
+        : percent >= 100
+          ? 100
+          : percent >= 80
+            ? 80
+            : percent >= 70
+              ? 70
+              : percent >= 60
+                ? 60
+                : 'effort';
     const questionsToReview =
       percent === null ? 0 : Math.max(0, n - Math.round((n * percent) / 100));
 
@@ -1872,6 +1883,7 @@ export default function App() {
         bonusPointsEarned: bonusPts,
         newDailyTotal,
         questionsToReview,
+        context: 'logSet',
       });
       setPendingLogSetTier(highestTier);
     } else {
@@ -2362,7 +2374,17 @@ export default function App() {
     });
 
     const highestTier: LogWinTier | null =
-      parsedPercent === undefined ? null : parsedPercent >= 80 ? 80 : parsedPercent >= 70 ? 70 : parsedPercent >= 60 ? 60 : null;
+      parsedPercent === undefined
+        ? null
+        : parsedPercent >= 100
+          ? 100
+          : parsedPercent >= 80
+            ? 80
+            : parsedPercent >= 70
+              ? 70
+              : parsedPercent >= 60
+                ? 60
+                : null;
     const accuracyBonusPoints =
       parsedPercent === undefined ? 0 : Math.round((q * parsedPercent) / 100);
 
@@ -2379,12 +2401,16 @@ export default function App() {
 
     if (highestTier && q > 0) {
       const newDailyTotal = dailyQuestions + q;
+      const questionsToReviewPractice =
+        parsedPercent === undefined ? 0 : Math.max(0, q - Math.round((q * parsedPercent) / 100));
       setLogWinCelebrate({
         tier: highestTier,
         questionsCovered: q,
         percentCorrect: parsedPercent!,
         bonusPointsEarned: accuracyBonusPoints,
         newDailyTotal,
+        questionsToReview: questionsToReviewPractice,
+        context: 'practiceTest',
       });
       setPendingLogSetTier(highestTier);
     } else {
@@ -4280,20 +4306,30 @@ export default function App() {
               initial={{ scale: 0.5, y: 100 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)] relative`}
+              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 relative ${
+                logWinCelebrate.tier === 100
+                  ? 'border-amber-400 shadow-[0_0_50px_rgba(251,191,36,0.35)]'
+                  : 'border-cyan-400 shadow-[0_0_50px_rgba(34,211,238,0.35)]'
+              }`}
             >
               <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
                 {logWinCelebrate.tier !== 'effort' && (
-                  <div className="w-full h-[220px] md:h-[350px] shrink-0 overflow-hidden bg-cyan-50">
+                  <div
+                    className={`w-full h-[220px] md:h-[350px] shrink-0 overflow-hidden ${
+                      logWinCelebrate.tier === 100 ? 'bg-sky-50' : 'bg-cyan-50'
+                    }`}
+                  >
                     <motion.img
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       src={
-                        logWinCelebrate.tier === 80
-                          ? graphicAsset('rockstarsalmon')
-                          : logWinCelebrate.tier === 70
-                            ? graphicAsset('scholarsalmon')
-                            : graphicAsset('doublethumbsupsalmon')
+                        logWinCelebrate.tier === 100
+                          ? graphicAsset('vacationsalmon')
+                          : logWinCelebrate.tier === 80
+                            ? graphicAsset('rockstarsalmon')
+                            : logWinCelebrate.tier === 70
+                              ? graphicAsset('scholarsalmon')
+                              : graphicAsset('doublethumbsupsalmon')
                       }
                       alt=""
                       className="block h-full w-full object-cover object-center"
@@ -4302,6 +4338,11 @@ export default function App() {
                   </div>
                 )}
                 <div className="p-8 pt-6 relative z-10 space-y-5">
+                {logWinCelebrate.tier === 100 && (
+                  <h2 className="text-amber-600 text-3xl sm:text-4xl font-black uppercase leading-none">
+                    Easy peasy lemon squeezy!
+                  </h2>
+                )}
                 {logWinCelebrate.tier === 80 && (
                   <h2 className="text-fuchsia-600 text-3xl sm:text-4xl font-black uppercase leading-none">
                     You&apos;re a rockstar!
@@ -4313,34 +4354,72 @@ export default function App() {
                   </h2>
                 )}
                 <div className="space-y-2">
-                  <p className="text-cyan-800 font-bold text-base leading-snug">
+                  <p
+                    className={`font-bold text-base leading-snug ${
+                      logWinCelebrate.tier === 100 ? 'text-amber-900' : 'text-cyan-800'
+                    }`}
+                  >
                     {logWinCelebrate.tier === 60 &&
                       'Double Thumbs Up Salmon is beaming. You cleared 60%+ on this set!'}
                     {logWinCelebrate.tier === 70 &&
                       'Scholar Salmon tips their mortarboard. You cleared 70%+ on this set!'}
                     {logWinCelebrate.tier === 80 &&
                       'Rockstar Salmon is shouting encore. You cleared 80%+ on this set!'}
+                    {logWinCelebrate.tier === 100 &&
+                      'Vacation Salmon just filed the paperwork to make you Fish of the Year. Wrong answers called in sick today.'}
                     {logWinCelebrate.tier === 'effort' &&
                       'You logged your set and kept momentum going. Keep practicing and you will keep improving.'}
                   </p>
                 </div>
-                <div className="bg-cyan-50 p-4 rounded-2xl border-2 border-cyan-100 space-y-2 text-left">
-                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
-                    <span>Set logged</span>
+                <div
+                  className={`p-4 rounded-2xl border-2 space-y-2 text-left ${
+                    logWinCelebrate.tier === 100
+                      ? 'bg-amber-50 border-amber-100'
+                      : 'bg-cyan-50 border-cyan-100'
+                  }`}
+                >
+                  <div
+                    className={`flex justify-between gap-4 text-sm font-bold ${
+                      logWinCelebrate.tier === 100 ? 'text-amber-950' : 'text-cyan-950'
+                    }`}
+                  >
+                    <span>
+                      {logWinCelebrate.context === 'practiceTest' ? 'Practice test logged' : 'Set logged'}
+                    </span>
                     <span className="font-black tabular-nums">{logWinCelebrate.questionsCovered} Q</span>
                   </div>
-                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
+                  <div
+                    className={`flex justify-between gap-4 text-sm font-bold ${
+                      logWinCelebrate.tier === 100 ? 'text-amber-950' : 'text-cyan-950'
+                    }`}
+                  >
                     <span>Accuracy entered</span>
                     <span className="font-black tabular-nums">{logWinCelebrate.percentCorrect}%</span>
                   </div>
-                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950">
+                  <div
+                    className={`flex justify-between gap-4 text-sm font-bold ${
+                      logWinCelebrate.tier === 100 ? 'text-amber-950' : 'text-cyan-950'
+                    }`}
+                  >
                     <div className="flex flex-col">
                       <span>Bonus Points</span>
-                      <span className="text-[11px] font-medium text-cyan-700"># logged x % correct</span>
+                      <span
+                        className={`text-[11px] font-medium ${
+                          logWinCelebrate.tier === 100 ? 'text-amber-700' : 'text-cyan-700'
+                        }`}
+                      >
+                        # logged x % correct
+                      </span>
                     </div>
                     <span className="font-black tabular-nums text-purple-700">{logWinCelebrate.bonusPointsEarned}</span>
                   </div>
-                  <div className="flex justify-between gap-4 text-sm font-bold text-cyan-950 pt-2 border-t border-cyan-200">
+                  <div
+                    className={`flex justify-between gap-4 text-sm font-bold pt-2 border-t ${
+                      logWinCelebrate.tier === 100
+                        ? 'text-amber-950 border-amber-200'
+                        : 'text-cyan-950 border-cyan-200'
+                    }`}
+                  >
                     <span>Total XP Logged</span>
                     <span className="font-black tabular-nums text-teal-600">
                       {logWinCelebrate.questionsCovered + logWinCelebrate.bonusPointsEarned}
@@ -4361,7 +4440,11 @@ export default function App() {
                     setShowLogWinCelebrateModal(false);
                     setLogWinCelebrate(null);
                   }}
-                  className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
+                  className={`question-count-clay-btn w-full text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all ${
+                    logWinCelebrate.tier === 100
+                      ? 'bg-amber-500 hover:bg-amber-600'
+                      : 'bg-cyan-600 hover:bg-cyan-700'
+                  }`}
                 >
                   Awesome!
                 </button>
