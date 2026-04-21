@@ -3407,7 +3407,7 @@ export default function App() {
 
         {/* Right Column: Level & Stats */}
         <div className="flex flex-col gap-8">
-          {isWarningMode && (
+          {(isWarningMode || isSleepMode) && (
             <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 hidden min-[600px]:flex w-full flex-col items-center text-center gap-6 font-serious">
               <div
                 className={`section-panel-ocean-frost-overlay animate-pulse ${isSleepMode ? 'section-panel-ocean-frost-glow-sleep' : 'section-panel-ocean-frost-glow-warning'}`}
