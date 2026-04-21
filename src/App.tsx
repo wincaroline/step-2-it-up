@@ -180,13 +180,13 @@ function mergeBonusPointsHistoryDay(
   return next;
 }
 
-/** Fade-up props for main page panels — applied per section so nothing is staggered via parent variants. */
+/** Shared page-load fade props for main panels (no movement, no stagger). */
 const mainSectionLoadProps = {
-  initial: { opacity: 0, y: 36 },
-  animate: { opacity: 1, y: 0 },
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
   transition: {
-    duration: 0.95,
-    ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+    duration: 0.45,
+    ease: 'easeOut' as const,
   },
 } as const;
 
@@ -3041,7 +3041,7 @@ export default function App() {
                         : 'bg-yellow-400/35'
                 }`}
               />
-              <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+              <div className={`relative z-10 flex flex-col items-center gap-4 w-full text-center ${
                 isPracticeTestMissionCompleteToday && isWarningMode
                   ? 'text-black'
                   : isPracticeTestMissionCompleteToday
@@ -3053,13 +3053,13 @@ export default function App() {
               <div className={`${
                 isPracticeTestMissionCompleteToday
                   ? isWarningMode
-                    ? 'bg-green-600 text-white'
-                    : 'bg-white text-green-500'
-                  : 'bg-black text-white'
-              } p-3 rounded-2xl shadow-lg transition-colors`}>
+                    ? 'text-white'
+                    : 'text-green-500'
+                  : 'text-black'
+              }`}>
                 {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
               </div>
-              <div className="flex flex-col flex-1 text-center sm:text-left">
+              <div className="flex flex-col items-center text-center">
                 <span className="text-xs opacity-60 tracking-widest">
                   {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
                 </span>
@@ -3070,7 +3070,7 @@ export default function App() {
                   <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
                 )}
               </div>
-              <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+              <div className="w-full flex flex-col gap-2 items-center justify-center">
                 {!isPracticeTestMissionCompleteToday && (
                   <button 
                     type="button"
@@ -3083,7 +3083,7 @@ export default function App() {
                       setPracticeTestEntryPercent('');
                       setShowPracticeTestEntryModal(true);
                     }}
-                    className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                    className="w-full max-w-[12rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
                   >
                     Completed
                   </button>
@@ -3092,7 +3092,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={removeTodayPracticeTestRecord}
-                    className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                    className="w-full max-w-[12rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
                   >
                     Remove
                   </button>
@@ -3133,7 +3133,7 @@ export default function App() {
                       : 'bg-yellow-400/35'
               }`}
             />
-            <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+            <div className={`relative z-10 flex flex-col items-center gap-4 w-full text-center ${
               isPracticeTestMissionCompleteToday && isWarningMode
                 ? 'text-black'
                 : isPracticeTestMissionCompleteToday
@@ -3144,14 +3144,12 @@ export default function App() {
             }`}>
             <div className={`${
               isPracticeTestMissionCompleteToday
-                ? isWarningMode
-                  ? 'bg-green-600 text-white'
-                  : 'bg-white text-green-500'
-                : 'bg-black text-white'
-            } p-3 rounded-2xl shadow-lg transition-colors`}>
+                ? 'text-white'
+                : 'text-black'
+            }`}>
               {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
             </div>
-            <div className="flex flex-col flex-1 text-center sm:text-left">
+            <div className="flex flex-col items-center text-center">
               <span className="text-xs opacity-60 tracking-widest">
                 {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
               </span>
@@ -3162,7 +3160,7 @@ export default function App() {
                 <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
               )}
             </div>
-            <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+            <div className="w-full flex flex-col gap-2 items-center justify-center">
               {!isPracticeTestMissionCompleteToday && (
                 <button 
                   type="button"
@@ -3175,7 +3173,7 @@ export default function App() {
                     setPracticeTestEntryPercent('');
                     setShowPracticeTestEntryModal(true);
                   }}
-                  className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                  className="w-full max-w-[12rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
                 >
                   Completed
                 </button>
@@ -3184,7 +3182,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={removeTodayPracticeTestRecord}
-                  className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                  className="w-full max-w-[12rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
                 >
                   Remove
                 </button>
@@ -3526,7 +3524,7 @@ export default function App() {
                         : 'bg-yellow-400/35'
                 }`}
               />
-              <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+              <div className={`relative z-10 flex flex-col items-center gap-4 w-full text-center ${
                 isPracticeTestMissionCompleteToday && isWarningMode
                   ? 'text-black'
                   : isPracticeTestMissionCompleteToday
@@ -3538,13 +3536,13 @@ export default function App() {
               <div className={`${
                 isPracticeTestMissionCompleteToday
                   ? isWarningMode
-                    ? 'bg-green-600 text-white'
-                    : 'bg-white text-green-500'
-                  : 'bg-black text-white'
-              } p-3 rounded-2xl shadow-lg transition-colors`}>
+                    ? 'text-white'
+                    : 'text-green-500'
+                  : 'text-black'
+              }`}>
                 {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
               </div>
-              <div className="flex flex-col flex-1 text-center sm:text-left">
+              <div className="flex flex-col items-center text-center">
                 <span className="text-xs opacity-60 tracking-widest">
                   {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
                 </span>
@@ -3555,7 +3553,7 @@ export default function App() {
                   <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
                 )}
               </div>
-              <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+              <div className="w-full flex flex-col gap-2 items-center justify-center">
                 {!isPracticeTestMissionCompleteToday && (
                   <button 
                     type="button"
@@ -3568,7 +3566,7 @@ export default function App() {
                       setPracticeTestEntryPercent('');
                       setShowPracticeTestEntryModal(true);
                     }}
-                    className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                    className="w-full max-w-[12rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
                   >
                     Completed
                   </button>
@@ -3577,7 +3575,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={removeTodayPracticeTestRecord}
-                    className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                    className="w-full max-w-[12rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
                   >
                     Remove
                   </button>
@@ -3618,7 +3616,7 @@ export default function App() {
                       : 'bg-yellow-400/35'
               }`}
             />
-            <div className={`relative z-10 flex flex-col sm:flex-row items-center gap-6 w-full ${
+            <div className={`relative z-10 flex flex-col items-center gap-4 w-full text-center ${
               isPracticeTestMissionCompleteToday && isWarningMode
                 ? 'text-black'
                 : isPracticeTestMissionCompleteToday
@@ -3629,14 +3627,12 @@ export default function App() {
             }`}>
             <div className={`${
               isPracticeTestMissionCompleteToday
-                ? isWarningMode
-                  ? 'bg-green-600 text-white'
-                  : 'bg-white text-green-500'
-                : 'bg-black text-white'
-            } p-3 rounded-2xl shadow-lg transition-colors`}>
+                ? 'text-white'
+                : 'text-black'
+            }`}>
               {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
             </div>
-            <div className="flex flex-col flex-1 text-center sm:text-left">
+            <div className="flex flex-col items-center text-center">
               <span className="text-xs opacity-60 tracking-widest">
                 {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
               </span>
@@ -3647,7 +3643,7 @@ export default function App() {
                 <span className="text-[10px] opacity-80 mt-1 normal-case font-bold">Resets at midnight so you can complete it again tomorrow.</span>
               )}
             </div>
-            <div className="w-full sm:w-auto flex flex-row flex-wrap gap-2 items-center justify-center sm:justify-end">
+            <div className="w-full flex flex-col gap-2 items-center justify-center">
               {!isPracticeTestMissionCompleteToday && (
                 <button 
                   type="button"
@@ -3660,7 +3656,7 @@ export default function App() {
                     setPracticeTestEntryPercent('');
                     setShowPracticeTestEntryModal(true);
                   }}
-                  className="w-full sm:w-auto min-w-[8rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
+                  className="w-full max-w-[12rem] bg-black text-white px-6 py-3 rounded-xl text-xs hover:bg-gray-800 active:scale-95 transition-all shadow-md"
                 >
                   Completed
                 </button>
@@ -3669,7 +3665,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={removeTodayPracticeTestRecord}
-                  className="w-full sm:w-auto min-w-[8rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
+                  className="w-full max-w-[12rem] bg-red-600 text-white px-6 py-3 rounded-xl text-xs hover:bg-red-700 active:scale-95 transition-all shadow-md"
                 >
                   Remove
                 </button>
