@@ -65,6 +65,9 @@ import { PracticeTestScoresChart, type PracticeTestChartPress } from './componen
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { FeedbackSummaryAdminView } from './components/FeedbackSummaryAdminView';
 import { SettingsModal } from './components/SettingsModal';
+import { GoalReachedModal } from './components/GoalReachedModal';
+import { RecordDayModal } from './components/RecordDayModal';
+import { VariantPickerModal } from './components/VariantPickerModal';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
@@ -4930,144 +4933,38 @@ export default function App() {
 
         {/* Goal Reached Modal */}
         {showGoalModal && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
-          >
-            <motion.div 
-              initial={{ scale: 0.5, y: 100 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative`}
-            >
-              <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
-                <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
-                  <motion.img 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    src={graphicAsset('salmonthumbsup')} 
-                    alt="Salmon Thumbs Up" 
-                    className="w-full h-full object-cover object-center"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-                <div className="p-8 pt-6 relative z-10 space-y-6">
-                <div className="space-y-2">
-                  <h2 className="text-cyan-900 text-4xl font-black uppercase leading-none">Goal Reached!</h2>
-                  <p className="text-cyan-600 font-bold text-lg leading-tight">{goalMessage}</p>
-                </div>
-                <div className="bg-cyan-50 p-4 rounded-2xl border-2 border-cyan-100">
-                  <div className="text-cyan-900 font-black text-3xl">{dailyQuestions}</div>
-                  <div className="text-cyan-400 text-xs font-bold uppercase tracking-widest">Questions Done Today</div>
-                </div>
-                <button 
-                  onClick={() => {
-                    stopAllCelebrationMusic();
-                    setShowGoalModal(false);
-                  }}
-                  className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
-                >
-                  I'll Keep It Up!
-                </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <GoalReachedModal
+            goalMessage={goalMessage}
+            dailyQuestions={dailyQuestions}
+            onDismiss={() => {
+              stopAllCelebrationMusic();
+              setShowGoalModal(false);
+            }}
+          />
         )}
 
         {/* New record: questions in a single day */}
         {showRecordDayModal && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
-          >
-            <motion.div 
-              initial={{ scale: 0.5, y: 100 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#ff00ff,0_0_100px_#ff00ff] relative`}
-            >
-              <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
-                <div className="w-full h-[220px] md:h-[350px] shrink-0 bg-cyan-50 overflow-hidden">
-                  <motion.img 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    src={graphicAsset('salmonthumbsup')} 
-                    alt="Salmon Thumbs Up" 
-                    className="w-full h-full object-cover object-center"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-                <div className="p-8 pt-6 relative z-10 space-y-6">
-                <div className="space-y-2">
-                  <h2 className="text-cyan-900 text-4xl font-black uppercase leading-none">New Record!</h2>
-                  <p className="text-cyan-600 font-bold text-lg leading-tight">
-                    That is your best single-day total yet. Keep riding the wave!
-                  </p>
-                </div>
-                <div className="bg-cyan-50 p-4 rounded-2xl border-2 border-cyan-100">
-                  <div className="text-cyan-900 font-black text-3xl">{recordDayModalCount}</div>
-                  <div className="text-cyan-400 text-xs font-bold uppercase tracking-widest">Record Questions In A Day</div>
-                </div>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    stopAllCelebrationMusic();
-                    setShowRecordDayModal(false);
-                  }}
-                  className="question-count-clay-btn w-full bg-cyan-600 hover:bg-cyan-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
-                >
-                  {"Let's Go!"}
-                </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <RecordDayModal
+            recordDayModalCount={recordDayModalCount}
+            onDismiss={() => {
+              stopAllCelebrationMusic();
+              setShowRecordDayModal(false);
+            }}
+          />
         )}
 
         {/* Variant Modal */}
         {showVariantModal && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-[#001a2c]/90 backdrop-blur-md"
-          >
-            <motion.div 
-              initial={{ scale: 0.5, y: 100 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.5, y: 100 }}
-              className={`bg-white rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-8 border-cyan-400 shadow-[0_0_50px_#00ffff,0_0_100px_#00ffff] relative`}
-            >
-              <div className={`${modalBodyScrollClass} p-6 sm:p-8`} data-modal-scroll="true">
-              <h2 className="text-cyan-900 text-3xl font-black uppercase leading-none mb-6">Switch Version</h2>
-              <div className="grid grid-cols-2 gap-4">
-                {unlockedVariants.map(variant => (
-                  <div 
-                    key={variant}
-                    onClick={() => {
-                      setSelectedVariants(prev => ({ ...prev, [currentLevel.graphic]: variant }));
-                      setShowVariantModal(false);
-                    }}
-                    className={`cursor-pointer rounded-2xl border-4 overflow-hidden transition-all hover:scale-105 ${displayVariant === variant ? 'border-cyan-500 shadow-lg' : 'border-gray-200 opacity-70'}`}
-                  >
-                    <img src={graphicAsset(variant)} alt={variant} className="w-full aspect-square object-cover object-center" />
-                  </div>
-                ))}
-              </div>
-              <button 
-                onClick={() => setShowVariantModal(false)}
-                className="question-count-clay-btn mt-8 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
-              >
-                Close
-              </button>
-              </div>
-            </motion.div>
-          </motion.div>
+          <VariantPickerModal
+            displayVariant={displayVariant}
+            unlockedVariants={unlockedVariants}
+            onSelectVariant={(variant) => {
+              setSelectedVariants((prev) => ({ ...prev, [currentLevel.graphic]: variant }));
+              setShowVariantModal(false);
+            }}
+            onClose={() => setShowVariantModal(false)}
+          />
         )}
 
         {/* Full Screen Image Viewer */}
