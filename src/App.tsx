@@ -1805,19 +1805,12 @@ export default function App() {
       adjustBonusPointsForDay(dateKeyFromDate(effectiveTime), reviewedNow);
       setQuestionsToReviewToday(nextQuestionsToReview);
       setTotalQuestionsReviewed((prev) => prev + reviewedNow);
-      triggerBpPulse(prevBpEarnedToday, nextBpEarnedToday);
-      if (nextQuestionsToReview === 0) {
-        setReviewZeroTransitionPhase('zero');
-        if (reviewZeroHoldTimeoutRef.current) {
-          window.clearTimeout(reviewZeroHoldTimeoutRef.current);
-        }
-        reviewZeroHoldTimeoutRef.current = window.setTimeout(() => {
-          setReviewZeroTransitionPhase(null);
-          setShowReviewCompleteModal(true);
-          triggerFireworks();
-          reviewZeroHoldTimeoutRef.current = null;
-        }, 400);
-      }
+      animateReviewCountdown(
+        prevQuestionsToReview,
+        nextQuestionsToReview,
+        prevBpEarnedToday,
+        nextBpEarnedToday
+      );
       return;
     }
 
