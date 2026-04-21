@@ -1,4 +1,3 @@
-
 import { Level, Achievement } from './types';
 
 export const LEVELS: Level[] = [

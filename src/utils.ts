@@ -1,4 +1,3 @@
-
 import { ACHIEVEMENTS, DAILY_GOAL, LEVELS, LEVEL_VARIANTS } from './constants';
 import { StreakFlameVariant, Achievement } from './types';
 
@@ -43,11 +42,13 @@ export function collectAllGraphicAssetUrls(): string[] {
 
 /** Load images into the HTTP cache early so modals and level art appear without waiting on first paint. */
 export function preloadGraphicUrls(urls: string[]): void {
-  urls.forEach((src) => {
+  if (typeof window === 'undefined') return;
+  for (const src of urls) {
     const img = new Image();
     img.decoding = 'async';
+    img.fetchPriority = 'high';
     img.src = src;
-  });
+  }
 }
 
 
@@ -131,8 +132,6 @@ export function streakStatNumberColorFromVariant(variant: StreakFlameVariant): s
   return rgbString(STREAK_STAT_ORANGE_RGB, { r: 255, g: 255, b: 255 }, t);
 }
 
-export type PracticeTestScorePoint = { dateKey: string; testNumber: number; score: number };
-
 /** Every completed practice test, with score or null if not logged yet. */
 export type PracticeTestChartEntry = { dateKey: string; testNumber: number; score: number | null };
 
@@ -147,16 +146,6 @@ export function buildPracticeTestChartSeries(
       raw !== undefined && typeof raw === 'number' && !Number.isNaN(raw) ? raw : null;
     return { dateKey, testNumber: index + 1, score };
   });
-}
-
-/** Entries that include a numeric score (for trend tables, bonuses, etc.). */
-export function buildPracticeTestScoreSeries(
-  completionDates: Record<string, true>,
-  scores: Record<string, number>
-): PracticeTestScorePoint[] {
-  return buildPracticeTestChartSeries(completionDates, scores)
-    .filter((e) => e.score !== null)
-    .map((e) => ({ dateKey: e.dateKey, testNumber: e.testNumber, score: e.score as number }));
 }
 
 export const PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS: Record<string, number> = {

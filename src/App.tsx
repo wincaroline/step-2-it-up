@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback, type CSSProperties, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
@@ -59,8 +59,6 @@ import {
   PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS,
   publicAsset,
   graphicAsset,
-  collectAllGraphicAssetUrls,
-  preloadGraphicUrls,
   buildPracticeTestChartSeries,
   formatExamDateLabel,
   streakFlameVariantFromCount,
@@ -74,6 +72,9 @@ import { PracticeTestScoresChart, type PracticeTestChartPress } from './componen
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
+
+const URL_DANCE_MUSIC = publicAsset('assets/dancemusic.mp3');
+const URL_FIREWORKS = publicAsset('assets/fireworks.mp3');
 
 type LogWinTier = 60 | 70 | 80 | 100;
 type LogWinOutcome = LogWinTier | 'effort';
@@ -129,9 +130,8 @@ function accuracyBonusPointsFor(q: number, percent: number | undefined): number 
   return percent === undefined ? 0 : Math.round((q * percent) / 100);
 }
 
-/** Minimum time the feedback Submit button stays in its loading state (perceived progress). */
-const FEEDBACK_SUBMIT_MIN_SPINNER_MS = 800;
-const SIGN_OUT_MIN_SPINNER_MS = 800;
+/** Minimum spinner duration for feedback submit and sign-out (perceived progress). */
+const MIN_SPINNER_MS = 800;
 
 /** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
 const NO_ACHIEVEMENT_CELEBRATION_IDS = new Set(['plankton']);
@@ -558,7 +558,7 @@ export default function App() {
     setAuthActionPending(true);
     try {
       shouldOfferRestoreAfterSignOutRef.current = true;
-      await new Promise((resolve) => window.setTimeout(resolve, SIGN_OUT_MIN_SPINNER_MS));
+      await new Promise((resolve) => window.setTimeout(resolve, MIN_SPINNER_MS));
       await signOut(auth);
     } catch (err) {
       shouldOfferRestoreAfterSignOutRef.current = false;
@@ -1029,7 +1029,7 @@ export default function App() {
         triggerFireworks();
 
         if (!isMuted) {
-          const music = new Audio(publicAsset('assets/dancemusic.mp3'));
+          const music = new Audio(URL_DANCE_MUSIC);
           music.loop = true;
           music.volume = 0.5;
           music.play().catch(err => console.error("Achievement music failed:", err));
@@ -1200,7 +1200,7 @@ export default function App() {
       });
     }
 
-    const months: React.ReactNode[] = [];
+    const months: ReactNode[] = [];
     let monthWalker = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
     const lastMonthFirst = new Date(end.getFullYear(), end.getMonth(), 1);
     const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -1228,7 +1228,7 @@ export default function App() {
         }
       }
 
-      const cells: React.ReactNode[] = [];
+      const cells: ReactNode[] = [];
 
       for (let i = 0; i < firstWeekday; i++) {
         cells.push(<div key={`lead-${y}-${mo}-${i}`} className="aspect-square min-h-0" aria-hidden />);
@@ -1376,12 +1376,6 @@ export default function App() {
   const modalBodyScrollClass = 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain';
 
   // --- Effects ---
-  useEffect(() => {
-    // Warm the HTTP cache for every graphic used in levels, achievements, variants, and modals
-    // so first open (e.g. Log a Win celebration) does not wait on a cold network fetch.
-    preloadGraphicUrls(collectAllGraphicAssetUrls());
-  }, []);
-
   useEffect(() => {
     localStorage.setItem('dailyQuestions', dailyQuestions.toString());
   }, [dailyQuestions]);
@@ -1586,11 +1580,8 @@ export default function App() {
     if (!isMuted && amount !== 0) {
       let soundPath = amount > 0 ? publicAsset('assets/bubble_up.mp3') : publicAsset('assets/bubble_down.mp3');
       
-      // Special sound for reaching daily goal
-      if (hitDailyGoal && amount > 0) {
-        soundPath = publicAsset('assets/fireworks.mp3');
-      } else if (canShowRecordDayModal && amount > 0) {
-        soundPath = publicAsset('assets/fireworks.mp3');
+      if (amount > 0 && (hitDailyGoal || canShowRecordDayModal)) {
+        soundPath = URL_FIREWORKS;
       }
 
       console.log(`Playing sound: ${soundPath}`);
@@ -1981,7 +1972,7 @@ export default function App() {
         setShowRecordDayModal(true);
         triggerFireworks();
         if (!isMuted) {
-          const audio = new Audio(publicAsset('assets/fireworks.mp3'));
+          const audio = new Audio(URL_FIREWORKS);
           audio.volume = 0.7;
           audio.play().catch((err) => console.error('Audio play failed:', err));
         }
@@ -2040,7 +2031,7 @@ export default function App() {
     setShowAchievementCelebration(true);
     triggerFireworks();
     if (!isMuted) {
-      const music = new Audio(publicAsset('assets/dancemusic.mp3'));
+      const music = new Audio(URL_DANCE_MUSIC);
       music.loop = true;
       music.volume = 0.5;
       music.play().catch((err) => console.error('Achievement music failed:', err));
@@ -2088,7 +2079,7 @@ export default function App() {
     if (!selectedHistoryDate && toCelebrate.length > 0) {
       triggerFireworks();
       if (!isMuted) {
-        const music = new Audio(publicAsset('assets/dancemusic.mp3'));
+        const music = new Audio(URL_DANCE_MUSIC);
         music.loop = true;
         music.volume = 0.5;
         music.play().catch((err) => console.error('Achievement music failed:', err));
@@ -2503,7 +2494,7 @@ export default function App() {
     return goalMessage || "Just keep swimming! You're doing great! ";
   };
 
-  const getStreakFlameStyle = (streak: number): { className: string; style?: React.CSSProperties } => {
+  const getStreakFlameStyle = (streak: number): { className: string; style?: CSSProperties } => {
     if (streak <= 1) {
       return {
         className: 'w-6 h-6 shrink-0 text-orange-300 opacity-30',
@@ -2547,7 +2538,7 @@ export default function App() {
     };
   };
 
-  const getRecordIconStyle = (isNewRecordToday: boolean): { className: string; style?: React.CSSProperties } => {
+  const getRecordIconStyle = (isNewRecordToday: boolean): { className: string; style?: CSSProperties } => {
     if (!isNewRecordToday) {
       return { className: 'w-6 h-6 text-white opacity-90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]' };
     }
@@ -2622,7 +2613,7 @@ export default function App() {
         triggerFireworks();
 
         if (!isMuted) {
-          const music = new Audio(publicAsset('assets/dancemusic.mp3'));
+          const music = new Audio(URL_DANCE_MUSIC);
           music.loop = true;
           music.volume = 0.5;
           music.play().catch(err => console.error("Achievement music failed:", err));
@@ -3024,7 +3015,9 @@ export default function App() {
               <img 
                 src={isSleepMode ? graphicAsset('sleepingsalmon') : graphicAsset('anglerfishangry')} 
                 alt={isSleepMode ? "Sleeping Salmon" : "Anglerfish"} 
-                className="w-full h-auto max-h-[400px] object-contain relative z-10" 
+                className="w-full h-auto max-h-[400px] object-contain relative z-10"
+                decoding="async"
+                fetchPriority="high"
               />
               <p className={`${isSleepMode ? 'text-blue-300' : 'text-red-500'} font-black text-2xl italic relative z-10`}>
                 {isSleepMode ? "It's time to rest..." : (goalMessage || "The abyss is watching.")}
@@ -3267,7 +3260,7 @@ export default function App() {
                     const streakGlowFilter =
                       !isSleepMode && !isWarningMode && streak >= 3 ? flameStyle.style?.filter : undefined;
                     const streakVariant = streakFlameVariantFromCount(streak);
-                    const streakNumberStyle: React.CSSProperties | undefined =
+                    const streakNumberStyle: CSSProperties | undefined =
                       !isSleepMode && !isWarningMode
                         ? {
                             ...(streakGlowFilter ? { filter: streakGlowFilter } : {}),
@@ -3441,7 +3434,9 @@ export default function App() {
               <img 
                 src={isSleepMode ? graphicAsset('sleepingsalmon') : graphicAsset('anglerfishangry')} 
                 alt={isSleepMode ? "Sleeping Salmon" : "Anglerfish"} 
-                className="w-full h-auto max-h-[400px] object-contain relative z-10" 
+                className="w-full h-auto max-h-[400px] object-contain relative z-10"
+                decoding="async"
+                fetchPriority="high"
               />
               <p className={`${isSleepMode ? 'text-blue-300' : 'text-red-500'} font-black text-2xl italic relative z-10`}>
                 {isSleepMode ? "It's time to rest..." : (goalMessage || "The abyss is watching.")}
@@ -5282,7 +5277,7 @@ export default function App() {
                     } catch (err) {
                       submitErr = err;
                     }
-                    const remaining = FEEDBACK_SUBMIT_MIN_SPINNER_MS - (performance.now() - submitStarted);
+                    const remaining = MIN_SPINNER_MS - (performance.now() - submitStarted);
                     if (remaining > 0) {
                       await new Promise<void>((resolve) => setTimeout(resolve, remaining));
                     }

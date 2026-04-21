@@ -57,6 +57,8 @@ export const LevelSection: React.FC<LevelSectionProps> = React.memo(({
           src={graphicAsset(displayVariant)}
           alt={currentLevel.name} 
           className="w-full h-full object-cover"
+          decoding="async"
+          fetchPriority={isWarningMode ? 'low' : 'high'}
           referrerPolicy="no-referrer"
         />
       </div>
