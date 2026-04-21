@@ -2760,7 +2760,7 @@ export default function App() {
           aria-hidden
           src={`${import.meta.env.BASE_URL}assets/${isSleepMode ? 'graphic_oceantopnight.png' : 'graphic_oceantop.png'}`}
           alt=""
-          className="absolute top-0 left-0 w-screen h-auto max-w-none object-contain object-top select-none pointer-events-none z-[5]"
+          className="absolute top-0 left-0 w-full sm:w-screen h-[100px] sm:h-auto max-w-none object-cover sm:object-contain object-top select-none pointer-events-none z-[5]"
           animate={{ y: [0, -6, 0, 6, 0] }}
           transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -3709,7 +3709,7 @@ export default function App() {
                 : 'graphic_oceanfloor.png'
           }`}
           alt=""
-          className={`block w-full h-auto max-w-none object-contain object-bottom select-none pointer-events-none ${
+          className={`block w-full h-[100px] sm:h-auto max-w-none object-cover sm:object-contain object-bottom select-none pointer-events-none ${
             isWarningMode ? 'opacity-50' : isSleepMode ? 'opacity-70' : 'opacity-[0.85]'
           }`}
           style={
