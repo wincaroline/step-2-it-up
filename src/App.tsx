@@ -57,6 +57,7 @@ import {
   calculateCurrentStreak,
   getAchievementStatus,
   dateKeyFromDate,
+  nextCalendarDateKey,
   getHistoryColor,
   PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS,
   publicAsset,
@@ -125,7 +126,20 @@ function bonusPointsForLoggedAccuracy(q: number, percent: number): number {
 const MIN_SPINNER_MS = 800;
 
 /** Review countdown uses Q × this value; escalates by +1 each local midnight if reviews stay incomplete. */
-const REVIEW_PENALTY_BASE_MULTIPLIER = 3;
+const REVIEW_PENALTY_BASE_MULTIPLIER = 1;
+
+/** Persists local calendar anchor so review BP penalties run on cold start after midnight. */
+const LAST_REVIEW_CALENDAR_ANCHOR_KEY = 'lastReviewCalendarAnchorDayKey';
+/** If the user closes before dismissing, reopen shows the same loss amount. */
+const PENDING_MIDNIGHT_REVIEW_LOSS_MODAL_BP_KEY = 'pendingMidnightReviewLossModalBp';
+
+function readPendingMidnightReviewLossBp(): number {
+  if (typeof window === 'undefined') return 0;
+  const raw = localStorage.getItem(PENDING_MIDNIGHT_REVIEW_LOSS_MODAL_BP_KEY);
+  if (raw == null) return 0;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
 /** Level 1 Plankton is granted by default — never show the achievement celebration modal for it. */
 const NO_ACHIEVEMENT_CELEBRATION_IDS = new Set(['plankton']);
@@ -200,6 +214,21 @@ function computeAutoWarningMode(hour: number, dailyQuestions: number, dailyGoalQ
   if (!inEveningWindow) return false;
   return dailyQuestions < goal / 2;
 }
+
+type SettingsDraftState = {
+  examDateKey: string;
+  dailyGoalQuestions: number;
+  editingExamDate: boolean;
+  editingDailyGoal: boolean;
+  isMuted: boolean;
+  isTestMode: boolean;
+  showTestCodeInput: boolean;
+  testCodeInput: string;
+  simulatedTime: Date | null;
+  isWarningMode: boolean;
+  adminSleepModeForceOn: boolean;
+  isConfirmingClear: boolean;
+};
 
 export default function App() {
   const isFeedbackSummaryView =
@@ -408,6 +437,12 @@ export default function App() {
   const [isReviewCountdownActive, setIsReviewCountdownActive] = useState(false);
   const [reviewZeroTransitionPhase, setReviewZeroTransitionPhase] = useState<'zero' | null>(null);
   const [showReviewCompleteModal, setShowReviewCompleteModal] = useState(false);
+  const initialPendingMidnightLossBp =
+    typeof window !== 'undefined' ? readPendingMidnightReviewLossBp() : 0;
+  const [showMidnightReviewLossModal, setShowMidnightReviewLossModal] = useState(
+    initialPendingMidnightLossBp > 0
+  );
+  const [midnightReviewLossBp, setMidnightReviewLossBp] = useState(initialPendingMidnightLossBp);
   const [isBpPulseActive, setIsBpPulseActive] = useState(false);
   const [displayBonusPointsEarnedToday, setDisplayBonusPointsEarnedToday] = useState(0);
   const [isBpCountupActive, setIsBpCountupActive] = useState(false);
@@ -531,6 +566,20 @@ export default function App() {
   }, []);
 
   const [simulatedTime, setSimulatedTime] = useState<Date | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState<SettingsDraftState>(() => ({
+    examDateKey: DEFAULT_EXAM_DATE_KEY,
+    dailyGoalQuestions: DAILY_GOAL,
+    editingExamDate: false,
+    editingDailyGoal: false,
+    isMuted: false,
+    isTestMode: false,
+    showTestCodeInput: false,
+    testCodeInput: '',
+    simulatedTime: null,
+    isWarningMode: false,
+    adminSleepModeForceOn: false,
+    isConfirmingClear: false,
+  }));
   const [currentTime, setCurrentTime] = useState(new Date());
   /** Read by the wall/sim clock interval so the effect stays mounted (stable tick); avoids resetting the timer every simulated second. */
   const simulatedTimeRef = useRef<Date | null>(null);
@@ -586,16 +635,84 @@ export default function App() {
     }
   }, []);
 
-  /** Restore real clock + automatic warning/sleep behavior when leaving admin. */
-  const exitAdminMode = useCallback(() => {
-    setIsTestMode(false);
-    setSimulatedTime(null);
-    setAdminSleepModeForceOn(false);
-    setShowTestCodeInput(false);
-    setTestCodeInput('');
-    const hours = new Date().getHours();
-    setIsWarningMode(computeAutoWarningMode(hours, dailyQuestions, dailyGoalQuestions));
-  }, [dailyQuestions, dailyGoalQuestions]);
+  const commitSettingsDraftToApp = useCallback(
+    (d: SettingsDraftState) => {
+      setExamDateKey(d.examDateKey);
+      setDailyGoalQuestions(d.dailyGoalQuestions);
+      setIsMuted(d.isMuted);
+
+      if (!d.isTestMode) {
+        setIsTestMode(false);
+        setSimulatedTime(null);
+        setAdminSleepModeForceOn(false);
+        setShowTestCodeInput(false);
+        setTestCodeInput('');
+        const hours = new Date().getHours();
+        setIsWarningMode(computeAutoWarningMode(hours, dailyQuestions, d.dailyGoalQuestions));
+      } else {
+        setIsTestMode(true);
+        setSimulatedTime(d.simulatedTime);
+        setIsWarningMode(d.isWarningMode);
+        setAdminSleepModeForceOn(d.adminSleepModeForceOn);
+        setShowTestCodeInput(d.showTestCodeInput);
+        setTestCodeInput(d.testCodeInput);
+      }
+
+      setEditingExamDate(false);
+      setEditingDailyGoal(false);
+      setIsConfirmingClear(false);
+    },
+    [dailyQuestions]
+  );
+
+  const draftExitAdminMode = useCallback(() => {
+    setSettingsDraft((prev) => ({
+      ...prev,
+      isTestMode: false,
+      simulatedTime: null,
+      adminSleepModeForceOn: false,
+      showTestCodeInput: false,
+      testCodeInput: '',
+      isWarningMode: computeAutoWarningMode(new Date().getHours(), dailyQuestions, prev.dailyGoalQuestions),
+    }));
+  }, [dailyQuestions]);
+
+  const openSettingsModal = useCallback(() => {
+    setSettingsDraft({
+      examDateKey,
+      dailyGoalQuestions,
+      editingExamDate: false,
+      editingDailyGoal: false,
+      isMuted,
+      isTestMode,
+      showTestCodeInput,
+      testCodeInput,
+      simulatedTime,
+      isWarningMode,
+      adminSleepModeForceOn,
+      isConfirmingClear: false,
+    });
+    setShowSettingsModal(true);
+  }, [
+    examDateKey,
+    dailyGoalQuestions,
+    isMuted,
+    isTestMode,
+    showTestCodeInput,
+    testCodeInput,
+    simulatedTime,
+    isWarningMode,
+    adminSleepModeForceOn,
+  ]);
+
+  const discardSettingsModal = useCallback(() => {
+    setShowSettingsModal(false);
+  }, []);
+
+  const handleSaveSettings = useCallback(() => {
+    commitSettingsDraftToApp(settingsDraft);
+    setShowSettingsModal(false);
+  }, [settingsDraft, commitSettingsDraftToApp]);
 
   const applyProgressFromCloud = useCallback((p: UserProgressV1) => {
     historyRef.current = p.history;
@@ -900,6 +1017,8 @@ export default function App() {
   }, []);
 
   const effectiveTime = simulatedTime ?? currentTime;
+  /** Clock shown in Settings for simulated time edits (draft until Save). */
+  const settingsModalEffectiveTime = settingsDraft.simulatedTime ?? currentTime;
   const todayKey = dateKeyFromDate(effectiveTime);
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
@@ -1121,11 +1240,11 @@ export default function App() {
   }, [adminSleepModeForceOn]);
 
   useEffect(() => {
-    if (!showSettingsModal || !showTestCodeInput || isTestMode) return;
+    if (!showSettingsModal || !settingsDraft.showTestCodeInput || settingsDraft.isTestMode) return;
     requestAnimationFrame(() => {
       adminCodeInputRef.current?.focus();
     });
-  }, [showSettingsModal, showTestCodeInput, isTestMode]);
+  }, [showSettingsModal, settingsDraft.showTestCodeInput, settingsDraft.isTestMode]);
 
   useEffect(() => {
     if (showSettingsModal) return;
@@ -1462,7 +1581,7 @@ export default function App() {
     localStorage.setItem('reviewPenaltyMultiplier', reviewPenaltyMultiplier.toString());
   }, [reviewPenaltyMultiplier]);
 
-  /** After the queue is cleared, the next incomplete streak starts at the base BP penalty multiplier (e.g. 3). */
+  /** After the queue is cleared, the next incomplete streak starts at the base BP penalty multiplier (e.g. 1). */
   useEffect(() => {
     if (questionsToReviewToday === 0) {
       setReviewPenaltyMultiplier(REVIEW_PENALTY_BASE_MULTIPLIER);
@@ -1481,32 +1600,67 @@ export default function App() {
 
   /** Run before `useEffect` so `dailyQuestions` is reset before any effect can write stale counts into `history[todayKey]`.
    * At local midnight (or simulated day jump): deduct BP for unanswered reviews, escalate multiplier on failure.
+   * Uses a persisted calendar anchor so penalties also apply on cold start after midnight.
    * Pending reviews carry into the new day until completed so the UI queue does not disappear at midnight. */
   useLayoutEffect(() => {
-    const prevDayKey = prevCalendarDayKeyRef.current;
-    if (prevDayKey === null) {
+    if (typeof window === 'undefined') return;
+
+    let anchor = localStorage.getItem(LAST_REVIEW_CALENDAR_ANCHOR_KEY);
+
+    if (anchor === null) {
+      localStorage.setItem(LAST_REVIEW_CALENDAR_ANCHOR_KEY, todayKey);
       prevCalendarDayKeyRef.current = todayKey;
       return;
     }
-    if (prevDayKey === todayKey) return;
 
-    const pendingReview = questionsToReviewTodayRef.current;
-    const mult = reviewPenaltyMultiplierRef.current;
-
-    prevCalendarDayKeyRef.current = todayKey;
-
-    if (pendingReview > 0) {
-      const penalty = pendingReview * mult;
-      adjustBonusPointsForDay(prevDayKey, -penalty);
-      setReviewPenaltyMultiplier(mult + 1);
-    } else {
-      setReviewPenaltyMultiplier(REVIEW_PENALTY_BASE_MULTIPLIER);
+    if (anchor > todayKey) {
+      localStorage.setItem(LAST_REVIEW_CALENDAR_ANCHOR_KEY, todayKey);
+      prevCalendarDayKeyRef.current = todayKey;
+      return;
     }
 
-    const countForDay = history[todayKey];
+    if (anchor === todayKey) {
+      prevCalendarDayKeyRef.current = todayKey;
+      return;
+    }
+
+    let pendingQ = questionsToReviewTodayRef.current;
+    let mult = reviewPenaltyMultiplierRef.current;
+    let totalPenalty = 0;
+    let cursor = anchor;
+
+    while (cursor < todayKey) {
+      if (pendingQ > 0) {
+        const penalty = pendingQ * mult;
+        adjustBonusPointsForDay(cursor, -penalty);
+        totalPenalty += penalty;
+        mult = mult + 1;
+      } else {
+        mult = REVIEW_PENALTY_BASE_MULTIPLIER;
+      }
+      cursor = nextCalendarDateKey(cursor);
+    }
+
+    localStorage.setItem(LAST_REVIEW_CALENDAR_ANCHOR_KEY, todayKey);
+    prevCalendarDayKeyRef.current = todayKey;
+
+    reviewPenaltyMultiplierRef.current = mult;
+    questionsToReviewTodayRef.current = pendingQ;
+    localStorage.setItem('questionsToReviewToday', String(pendingQ));
+    localStorage.setItem('reviewPenaltyMultiplier', String(mult));
+
+    setReviewPenaltyMultiplier(mult);
+    setQuestionsToReviewToday(pendingQ);
+
+    const countForDay = historyRef.current[todayKey];
     setDailyQuestions(typeof countForDay === 'number' ? Math.max(0, countForDay) : 0);
-    setQuestionsToReviewToday(pendingReview);
-  }, [todayKey, history, adjustBonusPointsForDay]);
+
+    if (totalPenalty > 0) {
+      localStorage.setItem(PENDING_MIDNIGHT_REVIEW_LOSS_MODAL_BP_KEY, String(totalPenalty));
+      setMidnightReviewLossBp(totalPenalty);
+      setShowMidnightReviewLossModal(true);
+    }
+  }, [todayKey, adjustBonusPointsForDay]);
 
   useEffect(() => {
     localStorage.setItem('isTestMode', isTestMode.toString());
@@ -1561,6 +1715,7 @@ export default function App() {
       showLogSetModal ||
       showLogReviewModal ||
       showReviewCompleteModal ||
+      showMidnightReviewLossModal ||
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
       Boolean(practiceScoreSpotlight) ||
@@ -1584,6 +1739,7 @@ export default function App() {
     showLogSetModal,
     showLogReviewModal,
     showReviewCompleteModal,
+    showMidnightReviewLossModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
     practiceScoreSpotlight?.dateKey,
@@ -1602,6 +1758,7 @@ export default function App() {
       showLogSetModal ||
       showLogReviewModal ||
       showReviewCompleteModal ||
+      showMidnightReviewLossModal ||
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
       Boolean(practiceScoreSpotlight) ||
@@ -1626,6 +1783,7 @@ export default function App() {
     showLogSetModal,
     showLogReviewModal,
     showReviewCompleteModal,
+    showMidnightReviewLossModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
     practiceScoreSpotlight?.dateKey,
@@ -2706,7 +2864,8 @@ export default function App() {
     };
   };
 
-  const simulateStreak = (days: number) => {
+  const simulateStreak = (days: number, mutedOverride?: boolean) => {
+    const muted = mutedOverride ?? isMuted;
     const newHistory = { ...history };
     const today = new Date();
 
@@ -2767,7 +2926,7 @@ export default function App() {
       if (!selectedHistoryDate && toCelebrate.length > 0) {
         triggerFireworks();
 
-        if (!isMuted) {
+        if (!muted) {
           celebrationLoopAudioRef.current?.pause();
           const music = new Audio(URL_DANCE_MUSIC);
           celebrationLoopAudioRef.current = music;
@@ -2780,11 +2939,24 @@ export default function App() {
     }
   };
 
+  const handleSimulateStreakFromSettings = (days: number) => {
+    commitSettingsDraftToApp(settingsDraft);
+    simulateStreak(days, settingsDraft.isMuted);
+    setShowSettingsModal(false);
+  };
+
   if (isFeedbackSummaryView) {
     return <FeedbackSummaryAdminView authResolved={authResolved} firebaseUser={firebaseUser} />;
   }
 
   const primaryModalEnterAction = useMemo<(() => void) | null>(() => {
+    if (showMidnightReviewLossModal) {
+      return () => {
+        localStorage.removeItem(PENDING_MIDNIGHT_REVIEW_LOSS_MODAL_BP_KEY);
+        setShowMidnightReviewLossModal(false);
+        setMidnightReviewLossBp(0);
+      };
+    }
     if (showAchievementCelebration && selectedAchievement) {
       return dismissAchievementView;
     }
@@ -2839,6 +3011,7 @@ export default function App() {
     }
     return null;
   }, [
+    showMidnightReviewLossModal,
     showAchievementCelebration,
     selectedAchievement,
     dismissAchievementView,
@@ -2979,7 +3152,7 @@ export default function App() {
               <Flag className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => setShowSettingsModal(true)}
+              onClick={openSettingsModal}
               className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}
               title="Settings"
             >
@@ -3368,8 +3541,8 @@ export default function App() {
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
-                  <Check className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-cyan-300'}`} />
-                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-cyan-300'}`}>
+                  <Check className={`w-6 h-6 ${isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-[#FFAB91]'}`} />
+                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-[#FFAB91]'}`}>
                     {totalQuestionsReviewed}
                   </span>
                 </div>
@@ -4436,6 +4609,57 @@ export default function App() {
           </motion.div>
         )}
 
+        {showMidnightReviewLossModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[93] flex items-center justify-center p-4 sm:p-6 bg-black/88 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.88, y: 28 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.88, y: 28 }}
+              className={`bg-[#1a0508] rounded-[3rem] ${modalPanelSizeClass} ${modalShellLayoutClass} text-center border-[10px] border-red-700 shadow-[0_0_70px_rgba(185,28,28,0.55),inset_0_0_80px_rgba(0,0,0,0.45)] relative`}
+            >
+              <div className={`${modalBodyScrollClass}`} data-modal-scroll="true">
+                <div className="w-full h-[220px] md:h-[340px] shrink-0 bg-[#2d0a0f] overflow-hidden relative">
+                  <motion.img
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    src={graphicAsset('anglerfishangry')}
+                    alt=""
+                    className="block h-full w-full object-cover object-center scale-105"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#1a0508] via-transparent to-transparent" />
+                </div>
+                <div className="p-8 pt-6 relative z-10 space-y-5">
+                  <div className="space-y-3">
+                    <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-red-400 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+                      You didn&apos;t finish reviewing your questions for the day.
+                    </h3>
+                    <p className="text-lg sm:text-xl font-black text-red-200/95 tabular-nums tracking-tight drop-shadow-[0_1px_6px_rgba(0,0,0,0.85)]">
+                      You lost {midnightReviewLossBp} BP.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem(PENDING_MIDNIGHT_REVIEW_LOSS_MODAL_BP_KEY);
+                      setShowMidnightReviewLossModal(false);
+                      setMidnightReviewLossBp(0);
+                    }}
+                    className="question-count-clay-btn w-full bg-red-800 hover:bg-red-700 text-white py-4 rounded-2xl font-black text-xl uppercase tracking-wide active:scale-95 transition-all border-2 border-red-950/80 shadow-[0_8px_0_rgb(69,10,10)]"
+                  >
+                    Understood
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {/* Log Set: tier celebration */}
         {showLogWinCelebrateModal && logWinCelebrate && (
           <motion.div
@@ -4979,35 +5203,58 @@ export default function App() {
         {/* Settings Modal */}
         {showSettingsModal && (
           <SettingsModal
-            onRequestClose={() => setShowSettingsModal(false)}
-            examDateKey={examDateKey}
-            setExamDateKey={setExamDateKey}
-            editingExamDate={editingExamDate}
-            setEditingExamDate={setEditingExamDate}
-            dailyGoalQuestions={dailyGoalQuestions}
-            setDailyGoalQuestions={setDailyGoalQuestions}
-            editingDailyGoal={editingDailyGoal}
-            setEditingDailyGoal={setEditingDailyGoal}
-            isMuted={isMuted}
-            setIsMuted={setIsMuted}
-            isTestMode={isTestMode}
-            setIsTestMode={setIsTestMode}
-            exitAdminMode={exitAdminMode}
-            showTestCodeInput={showTestCodeInput}
-            setShowTestCodeInput={setShowTestCodeInput}
-            testCodeInput={testCodeInput}
-            setTestCodeInput={setTestCodeInput}
+            onDiscardClose={discardSettingsModal}
+            onSaveAndClose={handleSaveSettings}
+            examDateKey={settingsDraft.examDateKey}
+            setExamDateKey={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, examDateKey: value }))
+            }
+            editingExamDate={settingsDraft.editingExamDate}
+            setEditingExamDate={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, editingExamDate: value }))
+            }
+            dailyGoalQuestions={settingsDraft.dailyGoalQuestions}
+            setDailyGoalQuestions={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, dailyGoalQuestions: value }))
+            }
+            editingDailyGoal={settingsDraft.editingDailyGoal}
+            setEditingDailyGoal={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, editingDailyGoal: value }))
+            }
+            isMuted={settingsDraft.isMuted}
+            setIsMuted={(value) => setSettingsDraft((prev) => ({ ...prev, isMuted: value }))}
+            isTestMode={settingsDraft.isTestMode}
+            setIsTestMode={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, isTestMode: value }))
+            }
+            exitAdminMode={draftExitAdminMode}
+            showTestCodeInput={settingsDraft.showTestCodeInput}
+            setShowTestCodeInput={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, showTestCodeInput: value }))
+            }
+            testCodeInput={settingsDraft.testCodeInput}
+            setTestCodeInput={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, testCodeInput: value }))
+            }
             adminCodeInputRef={adminCodeInputRef}
-            effectiveTime={effectiveTime}
-            setSimulatedTime={setSimulatedTime}
-            simulateStreak={simulateStreak}
-            isWarningMode={isWarningMode}
-            setIsWarningMode={setIsWarningMode}
-            adminSleepModeForceOn={adminSleepModeForceOn}
-            setAdminSleepModeForceOn={setAdminSleepModeForceOn}
+            effectiveTime={settingsModalEffectiveTime}
+            setSimulatedTime={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, simulatedTime: value }))
+            }
+            simulateStreak={handleSimulateStreakFromSettings}
+            isWarningMode={settingsDraft.isWarningMode}
+            setIsWarningMode={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, isWarningMode: value }))
+            }
+            adminSleepModeForceOn={settingsDraft.adminSleepModeForceOn}
+            setAdminSleepModeForceOn={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, adminSleepModeForceOn: value }))
+            }
             openFeedbackSummaryTab={openFeedbackSummaryTab}
-            isConfirmingClear={isConfirmingClear}
-            setIsConfirmingClear={setIsConfirmingClear}
+            isConfirmingClear={settingsDraft.isConfirmingClear}
+            setIsConfirmingClear={(value) =>
+              setSettingsDraft((prev) => ({ ...prev, isConfirmingClear: value }))
+            }
             clearAllData={clearAllData}
             authResolved={authResolved}
             firebaseUser={firebaseUser}

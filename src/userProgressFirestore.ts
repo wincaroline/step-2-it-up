@@ -91,7 +91,7 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
     practiceTestPercents: asRecordNum(data.practiceTestPercents),
     questionsToReviewToday: Math.max(0, asNum(data.questionsToReviewToday, base.questionsToReviewToday)),
     reviewPenaltyMultiplier: Math.max(
-      3,
+      1,
       Math.round(asNum(data.reviewPenaltyMultiplier, base.reviewPenaltyMultiplier))
     ),
     totalQuestionsReviewed: Math.max(0, asNum(data.totalQuestionsReviewed, base.totalQuestionsReviewed)),
@@ -168,7 +168,7 @@ export function buildProgressFromAppState(args: {
     practiceTestQuestionCounts: args.practiceTestQuestionCounts,
     practiceTestPercents: args.practiceTestPercents,
     questionsToReviewToday: Math.max(0, args.questionsToReviewToday),
-    reviewPenaltyMultiplier: Math.max(3, Math.round(args.reviewPenaltyMultiplier)),
+    reviewPenaltyMultiplier: Math.max(1, Math.round(args.reviewPenaltyMultiplier)),
     totalQuestionsReviewed: Math.max(0, args.totalQuestionsReviewed),
     lastAchievedIds: args.lastAchievedIds,
     recordDayModalLastShown,

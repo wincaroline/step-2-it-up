@@ -62,6 +62,15 @@ export function dateKeyFromDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Next local calendar day after `YYYY-MM-DD` (for midnight review-penalty catch-up). */
+export function nextCalendarDateKey(dateKey: string): string {
+  const parts = dateKey.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return dateKey;
+  const [y, m, d] = parts;
+  const dt = new Date(y, m - 1, d + 1);
+  return dateKeyFromDate(dt);
+}
+
 /** Format local calendar `YYYY-MM-DD` for display (matches Settings / History labels). */
 export function formatExamDateLabel(key: string): string {
   const parts = key.split('-').map(Number);

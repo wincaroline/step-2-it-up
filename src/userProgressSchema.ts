@@ -23,7 +23,7 @@ export type UserProgressV1 = {
   practiceTestQuestionCounts: Record<string, number>;
   practiceTestPercents: Record<string, number>;
   questionsToReviewToday: number;
-  /** Escalates when reviews are incomplete at local midnight (starts at 3 → Q × 3). */
+  /** Escalates when reviews are incomplete at local midnight (starts at 1 → BP at risk is Q × multiplier). */
   reviewPenaltyMultiplier: number;
   totalQuestionsReviewed: number;
   lastAchievedIds: string[];
@@ -53,7 +53,7 @@ export function emptyUserProgress(): UserProgressV1 {
     practiceTestQuestionCounts: {},
     practiceTestPercents: {},
     questionsToReviewToday: 0,
-    reviewPenaltyMultiplier: 3,
+    reviewPenaltyMultiplier: 1,
     totalQuestionsReviewed: 0,
     lastAchievedIds: ['plankton'],
     recordDayModalLastShown: null,

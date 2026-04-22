@@ -44,7 +44,8 @@ function parseDatetimeLocal(raw: string): Date | null {
 }
 
 export type SettingsModalProps = {
-  onRequestClose: () => void;
+  onDiscardClose: () => void;
+  onSaveAndClose: () => void;
   examDateKey: string;
   setExamDateKey: (value: string) => void;
   editingExamDate: boolean;
@@ -82,7 +83,8 @@ export type SettingsModalProps = {
 };
 
 export function SettingsModal({
-  onRequestClose,
+  onDiscardClose,
+  onSaveAndClose,
   examDateKey,
   setExamDateKey,
   editingExamDate,
@@ -134,7 +136,7 @@ export function SettingsModal({
         <div className={`${modalBodyScrollClass} p-8 space-y-6 custom-scrollbar`} data-modal-scroll="true">
           <div className="flex items-center justify-between">
             <h2 className="text-blue-900 text-3xl font-black uppercase">Settings</h2>
-            <button onClick={onRequestClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+            <button onClick={onDiscardClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
               <X className="w-6 h-6 text-gray-400" />
             </button>
           </div>
@@ -301,60 +303,42 @@ export function SettingsModal({
                   <div className="grid grid-cols-3 gap-2 mt-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        simulateStreak(3);
-                        onRequestClose();
-                      }}
+                      onClick={() => simulateStreak(3)}
                       className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                     >
                       3 Days
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        simulateStreak(5);
-                        onRequestClose();
-                      }}
+                      onClick={() => simulateStreak(5)}
                       className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                     >
                       5 Days
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        simulateStreak(10);
-                        onRequestClose();
-                      }}
+                      onClick={() => simulateStreak(10)}
                       className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                     >
                       10 Days
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        simulateStreak(20);
-                        onRequestClose();
-                      }}
+                      onClick={() => simulateStreak(20)}
                       className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                     >
                       20 Days
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        simulateStreak(30);
-                        onRequestClose();
-                      }}
+                      onClick={() => simulateStreak(30)}
                       className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                     >
                       30 Days
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        simulateStreak(40);
-                        onRequestClose();
-                      }}
+                      onClick={() => simulateStreak(40)}
                       className="bg-purple-600 text-white px-3 py-2 rounded-xl font-black text-xs hover:bg-purple-700 transition-all"
                     >
                       40 Days
@@ -505,10 +489,11 @@ export function SettingsModal({
           </div>
 
           <button
-            onClick={onRequestClose}
+            type="button"
+            onClick={onSaveAndClose}
             className="question-count-clay-btn w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xl active:scale-95 transition-all"
           >
-            DONE
+            Save
           </button>
         </div>
       </motion.div>
