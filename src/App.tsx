@@ -1183,6 +1183,12 @@ export default function App() {
     return naturalSleepMode;
   }, [isTestMode, adminSleepModeForceOn, naturalSleepMode]);
 
+  const isSunsetMode = useMemo(() => {
+    const hours = effectiveTime.getHours();
+    const inSunsetWindow = hours >= 19 && hours <= 23;
+    return inSunsetWindow && !isWarningMode && !isSleepMode;
+  }, [effectiveTime, isWarningMode, isSleepMode]);
+
   useEffect(() => {
     if (isTestMode) return;
     const hours = effectiveTime.getHours();
@@ -3061,12 +3067,20 @@ export default function App() {
         ? 'bg-gradient-to-b from-[#195190] via-[#112B59] to-[#051933] sleep-mode' 
         : isWarningMode 
           ? 'bg-[linear-gradient(180deg,#2a0a0a_0%,#100606_16%,#050505_32%,#060608_74%,#050818_100%)] warning-mode' 
-          : 'bg-[linear-gradient(180deg,#A8DFFF_0%,#2DA3DA_15%,#18415F_100%)] font-sans'
+          : isSunsetMode
+            ? 'bg-[linear-gradient(180deg,#9F5C54_0%,#6D4055_50%,#292848_100%)] font-sans'
+            : 'bg-[linear-gradient(180deg,#A8DFFF_0%,#2DA3DA_15%,#18415F_100%)] font-sans'
     } text-white overflow-x-hidden relative transition-colors duration-1000`}>
       {!isWarningMode && (
         <motion.img
           aria-hidden
-          src={`${import.meta.env.BASE_URL}assets/${isSleepMode ? 'graphic_oceantopnight.png' : 'graphic_oceantop.png'}`}
+          src={`${import.meta.env.BASE_URL}assets/${
+            isSleepMode
+              ? 'graphic_oceantopnight.png'
+              : isSunsetMode
+                ? 'graphic_oceantopsunset.webp'
+                : 'graphic_oceantop.png'
+          }`}
           alt=""
           className="absolute top-0 left-0 w-full sm:w-screen h-[100px] sm:h-auto max-w-none object-cover sm:object-contain object-top select-none pointer-events-none z-[5]"
           animate={{ y: [0, -6, 0, 6, 0] }}
@@ -3104,18 +3118,20 @@ export default function App() {
 
       {/* Fish scroll with page (not viewport-fixed); still behind UI via z-0 */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-0" aria-hidden>
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Sardine"} delay={0} y="20%" />
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Great White Shark" : "Barracuda"} delay={5} y="40%" />
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={10} y="15%" />
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Great White Shark" : "Krill"} delay={15} y="85%" />
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic="Blue Whale" delay={20} y="60%" />
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Seahorse"} delay={25} y="30%" />
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Great White Shark" : "Sardine"} delay={7} y="70%" />
-        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={12} y="50%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic={isWarningMode ? "Barracuda" : "Sardine"} delay={0} y="20%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic={isWarningMode ? "Great White Shark" : "Barracuda"} delay={5} y="40%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={10} y="15%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic={isWarningMode ? "Great White Shark" : "Krill"} delay={15} y="85%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic="Blue Whale" delay={20} y="60%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic={isWarningMode ? "Barracuda" : "Seahorse"} delay={25} y="30%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic={isWarningMode ? "Great White Shark" : "Sardine"} delay={7} y="70%" />
+        <SeaCreature sleepMode={isSleepMode} warningMode={isWarningMode} sunsetMode={isSunsetMode} graphic={isWarningMode ? "Barracuda" : "Flying Fish"} delay={12} y="50%" />
       </div>
 
       {/* --- Header --- */}
-      <header className={`relative z-20 shrink-0 w-full px-6 py-4 flex justify-between items-center ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}>
+      <header className={`relative z-20 shrink-0 w-full px-6 py-4 flex justify-between items-center ${
+        isWarningMode ? 'text-red-400' : isSunsetMode ? 'text-[#292848]' : 'text-[#118AC0]'
+      }`}>
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
           <div className="flex items-center gap-2 px-1 sm:px-4 py-1 sm:py-2">
             <Anchor className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -3146,14 +3162,14 @@ export default function App() {
                 setReportDescription('');
                 setShowReportFeedbackModal(true);
               }}
-              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}
+              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : isSunsetMode ? 'text-[#292848]' : 'text-[#118AC0]'}`}
               title="Report feedback"
             >
               <Flag className="w-5 h-5" />
             </button>
             <button 
               onClick={openSettingsModal}
-              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : 'text-[#118AC0]'}`}
+              className={`question-count-clay-btn p-3 bg-white/20 backdrop-blur-md rounded-full hover:bg-white/30 transition-all ${isWarningMode ? 'text-red-400' : isSunsetMode ? 'text-[#292848]' : 'text-[#118AC0]'}`}
               title="Settings"
             >
               <Settings className="w-5 h-5" />
@@ -3296,6 +3312,7 @@ export default function App() {
                   isTestMode={isTestMode}
                   isWarningMode={isWarningMode}
                   isSleepMode={isSleepMode}
+                  isSunsetMode={isSunsetMode}
                   compact={true}
                   reviewLayout={true}
                   reviewCount={questionsToReviewToday}
@@ -3789,6 +3806,7 @@ export default function App() {
                   isTestMode={isTestMode}
                   isWarningMode={isWarningMode}
                   isSleepMode={isSleepMode}
+                  isSunsetMode={isSunsetMode}
                   compact={true}
                   reviewLayout={true}
                   reviewCount={questionsToReviewToday}
@@ -4010,7 +4028,9 @@ export default function App() {
               ? 'graphic_oceanfloornight_red.png'
               : isSleepMode
                 ? 'graphic_oceanfloornight.png'
-                : 'graphic_oceanfloor.png'
+                : isSunsetMode
+                  ? 'graphic_oceanfloorsunset.webp'
+                  : 'graphic_oceanfloor.png'
           }`}
           alt=""
           className={`block w-full h-[100px] sm:h-auto max-w-none object-cover sm:object-contain object-bottom select-none pointer-events-none ${

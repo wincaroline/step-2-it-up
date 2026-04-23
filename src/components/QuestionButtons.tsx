@@ -5,6 +5,7 @@ export interface QuestionButtonsProps {
   isTestMode: boolean;
   isWarningMode: boolean;
   isSleepMode: boolean;
+  isSunsetMode?: boolean;
   isHistoryModal?: boolean;
   compact?: boolean;
   reviewLayout?: boolean;
@@ -16,6 +17,7 @@ export const QuestionButtons = React.memo(function QuestionButtons({
   isTestMode,
   isWarningMode,
   isSleepMode,
+  isSunsetMode = false,
   isHistoryModal = false,
   compact = false,
   reviewLayout = false,
@@ -36,7 +38,7 @@ export const QuestionButtons = React.memo(function QuestionButtons({
       }
       if (isSleepMode) return `${base} bg-white/15 border-white/20 text-blue-100 backdrop-blur-md hover:bg-white/25`;
       if (isWarningMode) return `${base} bg-white/75 border-white/70 text-gray-900 backdrop-blur-md hover:bg-white/90`;
-      return `${base} bg-white/20 border-white/30 text-[#118AC0] backdrop-blur-md hover:bg-white/30`;
+      return `${base} bg-white/20 border-white/30 ${isSunsetMode ? 'text-[#292848]' : 'text-[#118AC0]'} backdrop-blur-md hover:bg-white/30`;
     }
 
     if (amount < 0) {

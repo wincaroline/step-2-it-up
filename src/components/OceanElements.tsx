@@ -132,12 +132,14 @@ export const SeaCreature = React.memo(function SeaCreature({
   y,
   sleepMode = false,
   warningMode = false,
+  sunsetMode = false,
 }: {
   graphic: string;
   delay: number;
   y: string;
   sleepMode?: boolean;
   warningMode?: boolean;
+  sunsetMode?: boolean;
 }) {
   const animSafeId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   /** `delay` from App is stagger in seconds — map to 0–1 and use negative animation-delay for phase (no frozen wait). */
@@ -156,7 +158,7 @@ export const SeaCreature = React.memo(function SeaCreature({
   const wigglePause = useMemo(() => 1.8 + Math.random() * 1.6, []);
 
   const boostCycle = useMemo(() => {
-    if (sleepMode || warningMode) return null;
+    if (sleepMode || warningMode || sunsetMode) return null;
     const tw = wiggleDuration;
     const total = tw + SURGE_COAST_S + SURGE_DECAY_S + wigglePause;
     const tW = tw / total;
@@ -174,7 +176,7 @@ export const SeaCreature = React.memo(function SeaCreature({
       rotate: [0, -6, 6, -4, 4, 0, 0] as const,
       yBob: [0, -1, 1, -1, 1, 0, 0] as const,
     };
-  }, [sleepMode, warningMode, wiggleDuration, wigglePause]);
+  }, [sleepMode, warningMode, sunsetMode, wiggleDuration, wigglePause]);
 
   const fishImageSrc = useMemo(() => {
     const base = import.meta.env.BASE_URL;
