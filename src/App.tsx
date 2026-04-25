@@ -12,23 +12,23 @@ import { flushSync } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import {
-  Trophy,
-  Zap,
   Anchor,
-  Star,
-  Settings,
-  Calendar,
-  X,
-  ClipboardCheck,
-  BookOpen,
-  TrendingUp,
   Award,
-  Flame,
-  LogIn,
-  Flag,
-  Check,
-  Loader2,
+  BookOpen,
   Brain,
+  Calendar,
+  Check,
+  ClipboardCheck,
+  Flag,
+  Flame,
+  Loader2,
+  LogIn,
+  Settings,
+  Star,
+  Trophy,
+  TrendingUp,
+  X,
+  Zap,
 } from 'lucide-react';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
@@ -69,23 +69,23 @@ import {
   clampDailyGoal,
 } from './utils';
 import { resolveHydratedDailyQuestions } from './dailyProgress';
-import { Bubble, BUBBLE_COUNT_SLEEP, SeaCreature } from './components/OceanElements';
-import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
-import { QuestionButtons } from './components/QuestionButtons';
-import { PracticeTestScoresChart, type PracticeTestChartPress } from './components/PracticeTestScoresChart';
-import { OnboardingScreen } from './components/OnboardingScreen';
 import { FeedbackSummaryAdminView } from './components/FeedbackSummaryAdminView';
-import { SettingsModal } from './components/SettingsModal';
 import { GoalReachedModal } from './components/GoalReachedModal';
-import { RecordDayModal } from './components/RecordDayModal';
-import { VariantPickerModal } from './components/VariantPickerModal';
-import { QuestionOfTheDayModal } from './components/QuestionOfTheDayModal';
+import { LevelSection } from './components/LevelSection';
+import { OnboardingScreen } from './components/OnboardingScreen';
+import { Bubble, BUBBLE_COUNT_SLEEP, SeaCreature } from './components/OceanElements';
+import { PracticeTestScoresChart, type PracticeTestChartPress } from './components/PracticeTestScoresChart';
+import { QuestionButtons } from './components/QuestionButtons';
 import { QuestionOfTheDayHistoryModal } from './components/QuestionOfTheDayHistoryModal';
+import { QuestionOfTheDayModal } from './components/QuestionOfTheDayModal';
+import { RecordDayModal } from './components/RecordDayModal';
+import { SettingsModal } from './components/SettingsModal';
+import { VariantPickerModal } from './components/VariantPickerModal';
 import { QOTD_QUESTION_BANK, QOTD_BANK_SIZE } from './data/qotdQuestionBank';
 import type { QotdAttemptRecord } from './types/qotd';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
-import type { Level, Achievement } from './types';
+import type { Achievement, Level } from './types';
 
 const URL_DANCE_MUSIC = publicAsset('assets/dancemusic.mp3');
 const URL_FIREWORKS = publicAsset('assets/fireworks.mp3');
@@ -262,7 +262,6 @@ export default function App() {
   const isFeedbackSummaryView =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('adminView') === 'feedback';
 
-  // --- State ---
   const [dailyQuestions, setDailyQuestions] = useState(() => {
     if (typeof window === 'undefined') return 0;
     const todayStr = dateKeyFromDate(new Date());

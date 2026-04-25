@@ -194,12 +194,12 @@ export function buildProgressFromAppState(args: {
   questionsOfTheDayCompletedTotal: number;
   qotdByDate: Record<string, QotdAttemptRecord>;
 }): UserProgressV1 {
-  let recordDayModalLastShown: string | null = null;
-  if (args.recordDayModalLastShown !== undefined) {
-    recordDayModalLastShown = args.recordDayModalLastShown;
-  } else if (typeof localStorage !== 'undefined') {
-    recordDayModalLastShown = localStorage.getItem(RECORD_DAY_MODAL_LAST_SHOWN_KEY);
-  }
+  const recordDayModalLastShown =
+    args.recordDayModalLastShown !== undefined
+      ? args.recordDayModalLastShown
+      : typeof localStorage !== 'undefined'
+        ? localStorage.getItem(RECORD_DAY_MODAL_LAST_SHOWN_KEY)
+        : null;
 
   return {
     v: USER_PROGRESS_VERSION,
