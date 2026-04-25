@@ -31,6 +31,15 @@ function getBarColorClass(percentage: number): string {
   return 'bg-emerald-500';
 }
 
+/** When correct is 0, real % is 0 but we still show a small fill so the bar is visible. */
+const MIN_ZERO_CORRECT_BAR_PERCENT = 3;
+
+function barFillWidthPercent(percentage: number, total: number, correct: number): number {
+  if (total === 0) return 0;
+  if (correct === 0) return Math.max(percentage, MIN_ZERO_CORRECT_BAR_PERCENT);
+  return percentage;
+}
+
 const ALL_DOMAINS: QotdClinicalDomain[] = [
   'Cardiovascular',
   'Respiratory',
@@ -306,8 +315,8 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                         {row.total > 0 && (
                           <div className="mt-2 h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all ${getBarColorClass(row.percentage)}`}
-                              style={{ width: `${row.percentage}%` }}
+                              className={`h-full min-w-px rounded-full transition-all ${getBarColorClass(row.percentage)}`}
+                              style={{ width: `${barFillWidthPercent(row.percentage, row.total, row.correct)}%` }}
                             />
                           </div>
                         )}
@@ -334,8 +343,8 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                         {row.total > 0 && (
                           <div className="mt-2 h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all ${getBarColorClass(row.percentage)}`}
-                              style={{ width: `${row.percentage}%` }}
+                              className={`h-full min-w-px rounded-full transition-all ${getBarColorClass(row.percentage)}`}
+                              style={{ width: `${barFillWidthPercent(row.percentage, row.total, row.correct)}%` }}
                             />
                           </div>
                         )}

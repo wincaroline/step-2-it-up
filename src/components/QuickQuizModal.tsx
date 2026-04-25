@@ -40,6 +40,12 @@ export function QuickQuizModal({
   const correctCount = results.filter((result) => result.isCorrect).length;
   const correctPercent = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
   const bonusPoints = correctCount * 10;
+  const scoreSummaryTextClass =
+    correctCount === 0
+      ? 'text-rose-600'
+      : correctCount === 1
+        ? 'text-amber-500'
+        : 'text-emerald-600';
 
   useEffect(() => {
     if (!hasSubmitted) {
@@ -91,7 +97,7 @@ export function QuickQuizModal({
           <h3 className="text-lg font-black uppercase tracking-[0.16em] text-cyan-700 sm:text-xl">Quick Quiz</h3>
           {hasSubmitted && (
             <p className="mt-3 font-black text-cyan-800">
-              <span className="text-2xl sm:text-3xl">
+              <span className={`text-2xl sm:text-3xl ${scoreSummaryTextClass}`}>
                 {correctCount}/3 ({correctPercent}%)
               </span>{' '}
               <span className="text-base sm:text-lg">Correct</span>
@@ -180,10 +186,28 @@ export function QuickQuizModal({
           </div>
 
           {hasSubmitted && (
-            <div className="mt-6 rounded-xl border-2 border-slate-200 bg-slate-100 p-4">
-              <p className="text-xs font-black uppercase tracking-wider text-slate-600">Summary</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">Questions Completed = +3</p>
-              <p className="text-sm font-semibold text-slate-900">Bonus Points = {correctCount} x 10 BP = +{bonusPoints} BP</p>
+            <div className="mt-6 rounded-2xl border-2 border-cyan-100 bg-cyan-50/80 p-4 sm:p-5 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-700">Summary</p>
+              <div className="mt-3 space-y-2 text-left">
+                <div className="flex items-center justify-between gap-4 text-sm font-bold text-cyan-950">
+                  <span>Questions Completed</span>
+                  <span className="font-black tabular-nums text-teal-700">+3</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 text-sm font-bold text-cyan-950">
+                  <div className="flex flex-col">
+                    <span>Bonus Points</span>
+                    <span className="text-[11px] font-semibold text-cyan-700">
+                      {correctCount} x 10 BP
+                    </span>
+                  </div>
+                  <span className="font-black tabular-nums text-purple-700">+{bonusPoints}</span>
+                </div>
+                <div className="border-t border-cyan-200 pt-2" />
+                <div className="flex items-center justify-between gap-4 text-sm font-black text-cyan-950">
+                  <span>Total XP Logged</span>
+                  <span className="tabular-nums text-emerald-700">+{3 + bonusPoints}</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
