@@ -97,16 +97,14 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[94] overflow-y-auto overflow-x-hidden bg-[#001a2c]/90 backdrop-blur-md p-4 sm:p-6"
-      data-modal-scroll="true"
+      className="fixed inset-0 z-[94] flex items-center justify-center overflow-x-hidden overflow-y-hidden bg-[#001a2c]/90 backdrop-blur-md p-4 sm:p-6"
     >
-      <div className="flex min-h-full items-center justify-center">
-        <motion.div
-          initial={{ scale: 0.95, y: 24 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 24 }}
-          className="bg-white rounded-[2rem] w-full max-w-4xl max-h-[90dvh] border-4 border-cyan-400 shadow-2xl flex flex-col min-h-0 overflow-hidden"
-        >
+      <motion.div
+        initial={{ scale: 0.95, y: 24 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.95, y: 24 }}
+        className="flex w-full min-h-0 max-h-[90dvh] max-w-4xl flex-col overflow-hidden rounded-[2rem] border-4 border-cyan-400 bg-white shadow-2xl"
+      >
           <div className="shrink-0 p-6 border-b border-slate-200">
             <h3 className="text-xl font-black uppercase tracking-tight text-cyan-900">Quiz Questions Completed</h3>
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mt-1">
@@ -134,7 +132,10 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-4" data-modal-scroll="true">
+          <div
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-6 space-y-4"
+            data-modal-scroll="true"
+          >
             {activeTab === 'questions' && (entries.length === 0 ? (
               <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-6 text-center">
                 <p className="text-slate-700 font-semibold">No completed quiz questions yet.</p>
@@ -209,6 +210,24 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                       : 'bg-white';
                 const selectedLabel =
                   entry.question?.choices.find((c) => c.id === entry.selectedChoiceId)?.label ?? entry.selectedChoiceId;
+                const correctChoiceId = entry.question?.correctChoiceId;
+                const correctChoiceLabel = correctChoiceId
+                  ? entry.question?.choices.find((c) => c.id === correctChoiceId)?.label
+                  : undefined;
+                const correctOnlyExplanation =
+                  entry.question && correctChoiceId
+                    ? entry.question.explanationsByChoice[correctChoiceId] ?? ''
+                    : '';
+                const wrongChoiceExplanation =
+                  entry.isCorrect === false && entry.question && entry.selectedChoiceId
+                    ? (entry.question.explanationsByChoice[entry.selectedChoiceId] ?? '').trim()
+                    : '';
+                const incorrectAnswerExplanationText =
+                  entry.isCorrect === false
+                    ? wrongChoiceExplanation !== ''
+                      ? wrongChoiceExplanation
+                      : entry.explanationShown
+                    : '';
                 return (
                   <div key={entry.id} className={`rounded-xl border-2 border-slate-200 p-4 space-y-3 ${cardBgClass}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -231,9 +250,32 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                       <span className="font-black">Your answer:</span>{' '}
                       {entry.selectedChoiceId ? `${entry.selectedChoiceId}. ${selectedLabel}` : 'Unavailable'}
                     </p>
-                    <p className="text-sm text-slate-700">
-                      <span className="font-black">Explanation:</span> {entry.explanationShown}
-                    </p>
+                    {entry.isCorrect === false ? (
+                      <>
+                        <p className="text-sm text-slate-700">
+                          <span className="font-black">Incorrect answer explanation:</span> {incorrectAnswerExplanationText}
+                        </p>
+                        {entry.question && correctChoiceId && (
+                          <>
+                            <p className="text-sm text-slate-700">
+                              <span className="font-black">Correct Answer:</span>{' '}
+                              {correctChoiceLabel != null
+                                ? `${correctChoiceId}. ${correctChoiceLabel}`
+                                : `${correctChoiceId}.`}
+                            </p>
+                            {correctOnlyExplanation ? (
+                              <p className="text-sm text-slate-700">
+                                <span className="font-black">Explanation:</span> {correctOnlyExplanation}
+                              </p>
+                            ) : null}
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-slate-700">
+                        <span className="font-black">Explanation:</span> {entry.explanationShown}
+                      </p>
+                    )}
                     <p className="text-sm text-amber-900">
                       <span className="font-black">Mnemonic:</span> {entry.mnemonicShown}
                     </p>
@@ -314,8 +356,7 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
               Close
             </button>
           </div>
-        </motion.div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }

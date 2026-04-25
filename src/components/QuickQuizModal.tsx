@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { motion } from 'motion/react';
-import { CheckCircle2, X, XCircle } from 'lucide-react';
+import { X } from 'lucide-react';
 
 import type { QuestionOfTheDayItem } from '../types/qotd';
 
@@ -33,10 +33,12 @@ export function QuickQuizModal({
   onClose,
 }: QuickQuizModalProps) {
   const modalScrollRef = useRef<HTMLDivElement | null>(null);
+  const questionSectionRefs = useRef<Array<HTMLElement | null>>([]);
   const resultsByQuestionId = new Map(results.map((result) => [result.questionId, result]));
   const answeredCount = questions.filter((question) => Boolean(selectionsByQuestionId[question.id])).length;
   const canSubmit = questions.length === 3 && answeredCount === 3;
   const correctCount = results.filter((result) => result.isCorrect).length;
+  const correctPercent = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
   const bonusPoints = correctCount * 10;
 
   useEffect(() => {
@@ -45,6 +47,20 @@ export function QuickQuizModal({
     }
     modalScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [hasSubmitted]);
+
+  const handleChoiceSelect = (questionId: string, choiceId: string, questionIndex: number) => {
+    onSelectChoice(questionId, choiceId);
+    if (hasSubmitted) {
+      return;
+    }
+    const nextQuestionSection = questionSectionRefs.current[questionIndex + 1];
+    if (!nextQuestionSection) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      nextQuestionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   return (
     <motion.div
@@ -72,18 +88,41 @@ export function QuickQuizModal({
           className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-6 sm:p-8"
           data-modal-scroll="true"
         >
-          <h3 className="text-xs font-black uppercase tracking-[0.2em] text-cyan-700">Quick Quiz</h3>
-          <p className="mt-2 text-sm font-semibold text-slate-700">Answer all 3 questions, then submit to see your results.</p>
+          <h3 className="text-lg font-black uppercase tracking-[0.16em] text-cyan-700 sm:text-xl">Quick Quiz</h3>
+          {hasSubmitted && (
+            <p className="mt-3 font-black text-cyan-800">
+              <span className="text-2xl sm:text-3xl">
+                {correctCount}/3 ({correctPercent}%)
+              </span>{' '}
+              <span className="text-base sm:text-lg">Correct</span>
+            </p>
+          )}
+          {!hasSubmitted && (
+            <p className="mt-2 text-sm font-semibold text-slate-700">Answer all 3 questions, then submit to see your results.</p>
+          )}
 
           <div className="mt-6 space-y-6">
             {questions.map((question, index) => {
               const selectedChoiceId = selectionsByQuestionId[question.id] ?? null;
               const result = resultsByQuestionId.get(question.id) ?? null;
               return (
-                <section key={question.id} className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-4">
-                  <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">
-                    Question {index + 1} · {question.domain} · {question.competency}
-                  </p>
+                <section
+                  key={question.id}
+                  ref={(el) => {
+                    questionSectionRefs.current[index] = el;
+                  }}
+                  className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                      Question {index + 1} · {question.domain} · {question.competency}
+                    </p>
+                    {hasSubmitted && result && (
+                      <p className={`text-xs font-black uppercase tracking-wider ${result.isCorrect ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {result.isCorrect ? 'Correct' : 'Incorrect'}
+                      </p>
+                    )}
+                  </div>
                   <p className="mt-3 text-sm font-semibold leading-relaxed text-slate-900">{question.stem}</p>
 
                   <div className="mt-4 space-y-2">
@@ -92,15 +131,19 @@ export function QuickQuizModal({
                       const isCorrectChoice = question.correctChoiceId === choice.id;
                       const showCorrect = hasSubmitted && isCorrectChoice;
                       const showIncorrectPick = hasSubmitted && isSelected && !isCorrectChoice;
+                      const showChoiceExplanation = hasSubmitted && (showCorrect || showIncorrectPick);
+                      const choiceExplanation = question.explanationsByChoice[choice.id] ?? 'No explanation available.';
+                      const correctChoiceClass =
+                        result && !result.isCorrect ? 'border-slate-400 bg-slate-100' : 'border-emerald-500 bg-emerald-50';
                       return (
                         <button
                           key={choice.id}
                           type="button"
-                          onClick={() => onSelectChoice(question.id, choice.id)}
+                          onClick={() => handleChoiceSelect(question.id, choice.id, index)}
                           disabled={hasSubmitted}
                           className={`w-full rounded-xl border-2 px-4 py-3 text-left transition-all ${
                             showCorrect
-                              ? 'border-emerald-500 bg-emerald-50'
+                              ? correctChoiceClass
                               : showIncorrectPick
                                 ? 'border-rose-500 bg-rose-50'
                                 : isSelected
@@ -110,6 +153,14 @@ export function QuickQuizModal({
                         >
                           <span className="mr-2 font-black text-slate-700">{choice.id}.</span>
                           <span className="font-medium text-slate-900">{choice.label}</span>
+                          {showChoiceExplanation && (
+                            <div className="mt-3 border-t border-current/20 pt-2">
+                              <p className={`text-xs font-black uppercase tracking-wider ${showCorrect ? 'text-emerald-800' : 'text-rose-800'}`}>
+                                {showCorrect ? 'Correct' : 'Incorrect'}
+                              </p>
+                              <p className="mt-1 text-sm font-medium text-slate-800">{choiceExplanation}</p>
+                            </div>
+                          )}
                         </button>
                       );
                     })}
@@ -117,23 +168,6 @@ export function QuickQuizModal({
 
                   {hasSubmitted && result && (
                     <div className="mt-4 space-y-3">
-                      <div
-                        className={`rounded-xl border-2 p-3 ${
-                          result.isCorrect ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          {result.isCorrect ? (
-                            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" />
-                          ) : (
-                            <XCircle className="h-5 w-5 shrink-0 text-rose-700" />
-                          )}
-                          <p className={`text-sm font-black uppercase ${result.isCorrect ? 'text-emerald-800' : 'text-rose-800'}`}>
-                            {result.isCorrect ? 'Correct' : 'Incorrect'}
-                          </p>
-                        </div>
-                        <p className="mt-2 text-sm font-medium text-slate-800">{result.explanation}</p>
-                      </div>
                       <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3">
                         <p className="text-xs font-black uppercase tracking-wider text-amber-700">Mnemonic</p>
                         <p className="mt-1 text-sm font-semibold text-amber-900">{result.mnemonic}</p>

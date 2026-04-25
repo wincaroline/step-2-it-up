@@ -78,6 +78,48 @@ function makeQuestion(item: QuestionOfTheDayItem): QuestionOfTheDayItem {
   return item;
 }
 
+function parseIncorrectExplanations(chunk: string): Record<string, string> {
+  const lines = cleanText(chunk).split('\n');
+  const byChoice: Record<string, string> = {};
+  let currentChoiceId: string | null = null;
+  let currentExplanationLines: string[] = [];
+
+  const flushCurrent = () => {
+    if (!currentChoiceId) return;
+    const fullExplanation = cleanText(currentExplanationLines.join('\n'));
+    if (fullExplanation) {
+      byChoice[currentChoiceId] = fullExplanation;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const bulletStart = line.match(/^\s*-\s+\*\*([A-E](?:\/[A-E])*)(?:[^*]|\*(?!\*))*\*\*:?[\t ]*(.*)$/);
+    if (bulletStart) {
+      flushCurrent();
+      currentChoiceId = bulletStart[1];
+      currentExplanationLines = [bulletStart[2] ?? ''];
+      continue;
+    }
+    if (currentChoiceId) {
+      currentExplanationLines.push(line);
+    }
+  }
+
+  flushCurrent();
+  for (const [choiceId, explanation] of Object.entries({ ...byChoice })) {
+    if (!choiceId.includes('/')) continue;
+    const ids = choiceId.split('/').map((id) => id.trim());
+    for (const id of ids) {
+      if (!byChoice[id]) {
+        byChoice[id] = explanation;
+      }
+    }
+    delete byChoice[choiceId];
+  }
+  return byChoice;
+}
+
 function parseQuestionBlock(block: string, index: number): QuestionOfTheDayItem {
   const bodyWithoutHeading = block.replace(/^### Question \d+\s*\n+/m, '');
   const dividerIndex = bodyWithoutHeading.search(/\n\n---/m);
@@ -109,18 +151,25 @@ function parseQuestionBlock(block: string, index: number): QuestionOfTheDayItem 
   const correctChoiceId = extractOrThrow(block, /\*\*✅ Correct Answer:\s+([A-E])\s+—/m, 'correct answer');
   const whyCorrect = extractOrThrow(block, /\*Why it's correct:\*\s+([\s\S]*?)\n\n\*\*🧠 Mnemonic:/m, 'correct explanation');
   const mnemonic = extractOrThrow(block, /\*\*🧠 Mnemonic:\s+([\s\S]*?)\*\*/m, 'mnemonic').replace(/^"+|"+$/g, '');
-  const wrongChunk = extractOrThrow(block, /\*\*❌ Incorrect Answer Explanations:\*\*\n\n([\s\S]*?)(?:\n\n---|\n*$)/m, 'incorrect explanations');
-  const wrongMatches = [...wrongChunk.matchAll(/- \*\*([A-E])[^:]*:\*\*\s*([\s\S]*?)(?=\n- \*\*[A-E]|\n*$)/g)];
+  const wrongChunk = extractOrThrow(
+    block,
+    /\*\*❌ Incorrect Answer Explanations:\*\*\n\n([\s\S]*?)(?=\n\n---|\s*$)/,
+    'incorrect explanations',
+  );
   const explanationsByChoice: Record<string, string> = {
     [correctChoiceId]: whyCorrect,
   };
-  for (const m of wrongMatches) {
-    explanationsByChoice[m[1]] = cleanText(m[2]);
+  const parsedIncorrect = parseIncorrectExplanations(wrongChunk);
+  for (const [choiceId, explanation] of Object.entries(parsedIncorrect)) {
+    explanationsByChoice[choiceId] = explanation;
   }
 
   for (const choice of choices) {
     if (!explanationsByChoice[choice.id]) {
-      explanationsByChoice[choice.id] = 'Incorrect.';
+      explanationsByChoice[choice.id] =
+        choice.id === correctChoiceId
+          ? whyCorrect
+          : `This answer is incorrect. The correct answer is ${correctChoiceId}. ${whyCorrect}`;
     }
   }
 

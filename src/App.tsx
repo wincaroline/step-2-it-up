@@ -422,7 +422,9 @@ export default function App() {
     if (typeof window === 'undefined') return QOTD_QUESTION_BANK.map((q) => q.id);
     const raw = localStorage.getItem(QOTD_REMAINING_IDS_STORAGE_KEY);
     const allIds = QOTD_QUESTION_BANK.map((q) => q.id);
-    const attemptedIds = new Set(Object.values(qotdByDate).map((a) => a.questionId));
+    const attemptedIds = new Set(
+      (Object.values(qotdByDate) as QotdAttemptRecord[]).map((a) => a.questionId)
+    );
     const fallback = allIds.filter((id) => !attemptedIds.has(id));
     if (raw) {
       try {
@@ -932,6 +934,7 @@ export default function App() {
   const progressSnapshot = useMemo(
     () =>
       buildProgressFromAppState({
+        calendarDayKey: dateKeyFromDate(simulatedTime ?? currentTime),
         dailyQuestions,
         totalQuestions: totalQuestionsFromHistory,
         bonusPoints,
@@ -957,6 +960,8 @@ export default function App() {
         dailyGoalQuestions,
       }),
     [
+      simulatedTime,
+      currentTime,
       dailyQuestions,
       totalQuestionsFromHistory,
       bonusPoints,
@@ -1265,7 +1270,9 @@ export default function App() {
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
   const askedQuestionIds = useMemo(() => {
-    const qotdAttemptedIds = Object.values(qotdByDate).map((attempt) => attempt.questionId);
+    const qotdAttemptedIds = (Object.values(qotdByDate) as QotdAttemptRecord[]).map(
+      (attempt) => attempt.questionId
+    );
     return new Set([...qotdAttemptedIds, ...quickQuizAskedQuestionIds]);
   }, [qotdByDate, quickQuizAskedQuestionIds]);
   const quizQuestionsCompletedTotal = useMemo(
@@ -2030,6 +2037,8 @@ export default function App() {
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
       showQuickQuizModal ||
+      showQotdModal ||
+      showQotdHistoryModal ||
       Boolean(practiceScoreSpotlight) ||
       Boolean(selectedHistoryDate);
     if (isAnyModalOpen) {
@@ -2055,6 +2064,8 @@ export default function App() {
     showLogWinCelebrateModal,
     showGreatProgressModal,
     showQuickQuizModal,
+    showQotdModal,
+    showQotdHistoryModal,
     practiceScoreSpotlight?.dateKey,
     selectedHistoryDate?.dateKey,
   ]);
@@ -2075,6 +2086,8 @@ export default function App() {
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
       showQuickQuizModal ||
+      showQotdModal ||
+      showQotdHistoryModal ||
       Boolean(practiceScoreSpotlight) ||
       Boolean(selectedHistoryDate) ||
       Boolean(selectedAchievement);
@@ -2101,6 +2114,8 @@ export default function App() {
     showLogWinCelebrateModal,
     showGreatProgressModal,
     showQuickQuizModal,
+    showQotdModal,
+    showQotdHistoryModal,
     practiceScoreSpotlight?.dateKey,
     selectedHistoryDate?.dateKey,
     selectedAchievement?.id,

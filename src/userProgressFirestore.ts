@@ -171,6 +171,8 @@ export async function saveUserProgress(db: Firestore, uid: string, progress: Use
 
 /** Same fields as cloud doc; when `recordDayModalLastShown` is omitted, reads localStorage key if present. */
 export function buildProgressFromAppState(args: {
+  /** Calendar day for `dailyQuestions` (app “today”); merged into `history` so cloud hydrate matches UI. */
+  calendarDayKey: string;
   dailyQuestions: number;
   totalQuestions: number;
   bonusPoints: number;
@@ -209,7 +211,7 @@ export function buildProgressFromAppState(args: {
     totalQuestions: args.totalQuestions,
     bonusPoints: Math.max(0, args.bonusPoints),
     bonusPointsHistory: args.bonusPointsHistory,
-    history: args.history,
+    history: { ...args.history, [args.calendarDayKey]: args.dailyQuestions },
     lastLevel: args.lastLevel,
     selectedVariants: args.selectedVariants,
     isTestMode: args.isTestMode,
