@@ -39,6 +39,17 @@ export type QotdAttemptRecord = {
   completedAtMs: number;
 };
 
+export type QuickQuizAttemptRecord = {
+  questionId: string;
+  dateKey: string;
+  selectedChoiceId: string;
+  isCorrect: boolean;
+  explanationShown: string;
+  mnemonicShown: string;
+  bpEarned: number;
+  completedAtMs: number;
+};
+
 export type QuestionOfTheDayItem = {
   id: string;
   domain: QotdClinicalDomain;

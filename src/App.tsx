@@ -84,7 +84,7 @@ import { RecordDayModal } from './components/RecordDayModal';
 import { SettingsModal } from './components/SettingsModal';
 import { VariantPickerModal } from './components/VariantPickerModal';
 import { QOTD_QUESTION_BANK } from './data/qotdQuestionBank';
-import type { QotdAttemptRecord, QuestionOfTheDayItem } from './types/qotd';
+import type { QotdAttemptRecord, QuestionOfTheDayItem, QuickQuizAttemptRecord } from './types/qotd';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Achievement, Level } from './types';
 
@@ -238,6 +238,7 @@ const QOTD_MODAL_DISMISS_MARKER_PREFIX = 'dismissed:';
 const QOTD_REMAINING_IDS_STORAGE_KEY = 'qotdRemainingQuestionIds';
 const QOTD_ASSIGNED_BY_DATE_STORAGE_KEY = 'qotdAssignedQuestionByDate';
 const QUICK_QUIZ_ASKED_IDS_STORAGE_KEY = 'quickQuizAskedQuestionIds';
+const QUICK_QUIZ_ATTEMPTS_STORAGE_KEY = 'quickQuizAttemptsByQuestionId';
 
 function shuffleStrings(values: string[]): string[] {
   const arr = [...values];
@@ -350,6 +351,33 @@ export default function App() {
       return parsed.filter((id): id is string => typeof id === 'string');
     } catch {
       return [];
+    }
+  });
+  const [quickQuizAttemptsByQuestionId, setQuickQuizAttemptsByQuestionId] = useState<Record<string, QuickQuizAttemptRecord>>(() => {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem(QUICK_QUIZ_ATTEMPTS_STORAGE_KEY);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object') return {};
+      return Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).filter(([, value]) => {
+          if (!value || typeof value !== 'object') return false;
+          const row = value as Record<string, unknown>;
+          return (
+            typeof row.questionId === 'string' &&
+            typeof row.dateKey === 'string' &&
+            typeof row.selectedChoiceId === 'string' &&
+            typeof row.explanationShown === 'string' &&
+            typeof row.mnemonicShown === 'string' &&
+            typeof row.isCorrect === 'boolean' &&
+            Number.isFinite(Number(row.bpEarned)) &&
+            Number.isFinite(Number(row.completedAtMs))
+          );
+        })
+      ) as Record<string, QuickQuizAttemptRecord>;
+    } catch {
+      return {};
     }
   });
   const [quickQuizQuestions, setQuickQuizQuestions] = useState<QuestionOfTheDayItem[]>([]);
@@ -874,6 +902,29 @@ export default function App() {
     [history]
   );
 
+  const qotdByDateForStorage = useMemo(() => {
+    const merged: Record<string, QotdAttemptRecord> = { ...qotdByDate };
+    const now = Date.now();
+
+    quickQuizAskedQuestionIds.forEach((questionId, index) => {
+      const attempt = quickQuizAttemptsByQuestionId[questionId];
+      const storageKey = `quick-quiz:${questionId}`;
+      merged[storageKey] = {
+        dateKey: attempt?.dateKey ?? 'unknown-date',
+        questionId,
+        selectedChoiceId: attempt?.selectedChoiceId ?? 'N/A',
+        isCorrect: attempt?.isCorrect ?? false,
+        explanationShown:
+          attempt?.explanationShown ?? 'Legacy quick quiz entry. Update with user response if available.',
+        mnemonicShown: attempt?.mnemonicShown ?? 'N/A',
+        bpEarned: attempt?.bpEarned ?? 0,
+        completedAtMs: attempt?.completedAtMs ?? now + index,
+      };
+    });
+
+    return merged;
+  }, [qotdByDate, quickQuizAskedQuestionIds, quickQuizAttemptsByQuestionId]);
+
   useEffect(() => {
     setTotalQuestions((prev) => (prev === totalQuestionsFromHistory ? prev : totalQuestionsFromHistory));
   }, [totalQuestionsFromHistory]);
@@ -900,7 +951,7 @@ export default function App() {
         reviewPenaltyMultiplier,
         totalQuestionsReviewed,
         questionsOfTheDayCompletedTotal,
-        qotdByDate,
+        qotdByDate: qotdByDateForStorage,
         lastAchievedIds,
         examDateKey,
         dailyGoalQuestions,
@@ -925,7 +976,7 @@ export default function App() {
       reviewPenaltyMultiplier,
       totalQuestionsReviewed,
       questionsOfTheDayCompletedTotal,
-      qotdByDate,
+      qotdByDateForStorage,
       lastAchievedIds,
       examDateKey,
       dailyGoalQuestions,
@@ -1163,22 +1214,64 @@ export default function App() {
   );
   const todayQotdAttempt = qotdByDate[todayKey] ?? null;
   const todayQotdIsSubmitted = todayQotdAttempt !== null;
-  const qotdHistoryEntries = useMemo(
-    () =>
-      Object.values(qotdByDate as Record<string, QotdAttemptRecord>)
-        .sort((a, b) => b.completedAtMs - a.completedAtMs)
-        .map((attempt) => ({
-          attempt,
-          question: QOTD_QUESTION_BANK.find((q) => q.id === attempt.questionId) ?? null,
-        })),
-    [qotdByDate]
-  );
+  const quizHistoryEntries = useMemo(() => {
+    const qotdEntries = Object.values(qotdByDate as Record<string, QotdAttemptRecord>).map((attempt) => ({
+      id: `qotd:${attempt.dateKey}:${attempt.questionId}`,
+      source: 'qotd' as const,
+      dateKey: attempt.dateKey,
+      question: QOTD_QUESTION_BANK.find((q) => q.id === attempt.questionId) ?? null,
+      selectedChoiceId: attempt.selectedChoiceId,
+      isCorrect: attempt.isCorrect,
+      explanationShown: attempt.explanationShown,
+      mnemonicShown: attempt.mnemonicShown,
+      bpEarned: attempt.bpEarned,
+      completedAtMs: attempt.completedAtMs,
+    }));
+
+    const quickQuizEntries = quickQuizAskedQuestionIds.map((questionId, idx) => {
+      const attempt = quickQuizAttemptsByQuestionId[questionId];
+      if (!attempt) {
+        return {
+          id: `quick-quiz:legacy:${questionId}`,
+          source: 'quick-quiz' as const,
+          dateKey: 'Unknown date',
+          question: QOTD_QUESTION_BANK.find((q) => q.id === questionId) ?? null,
+          selectedChoiceId: '',
+          isCorrect: null,
+          explanationShown: 'Result unavailable for this older quick quiz attempt.',
+          mnemonicShown: 'Not available.',
+          bpEarned: 0,
+          completedAtMs: idx,
+        };
+      }
+      return {
+        id: `quick-quiz:${attempt.dateKey}:${attempt.questionId}`,
+        source: 'quick-quiz' as const,
+        dateKey: attempt.dateKey,
+        question: QOTD_QUESTION_BANK.find((q) => q.id === attempt.questionId) ?? null,
+        selectedChoiceId: attempt.selectedChoiceId,
+        isCorrect: attempt.isCorrect,
+        explanationShown: attempt.explanationShown,
+        mnemonicShown: attempt.mnemonicShown,
+        bpEarned: attempt.bpEarned,
+        completedAtMs: attempt.completedAtMs,
+      };
+    });
+
+    return [...qotdEntries, ...quickQuizEntries]
+      .sort((a, b) => b.completedAtMs - a.completedAtMs)
+      .map(({ completedAtMs, ...entry }) => entry);
+  }, [qotdByDate, quickQuizAskedQuestionIds, quickQuizAttemptsByQuestionId]);
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
   const askedQuestionIds = useMemo(() => {
     const qotdAttemptedIds = Object.values(qotdByDate).map((attempt) => attempt.questionId);
     return new Set([...qotdAttemptedIds, ...quickQuizAskedQuestionIds]);
   }, [qotdByDate, quickQuizAskedQuestionIds]);
+  const quizQuestionsCompletedTotal = useMemo(
+    () => Object.values(qotdByDate).length + quickQuizAskedQuestionIds.length,
+    [qotdByDate, quickQuizAskedQuestionIds]
+  );
   const quickQuizAvailableQuestionCount = useMemo(
     () => QOTD_QUESTION_BANK.filter((q) => !askedQuestionIds.has(q.id)).length,
     [askedQuestionIds]
@@ -1753,6 +1846,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(QUICK_QUIZ_ASKED_IDS_STORAGE_KEY, JSON.stringify(quickQuizAskedQuestionIds));
   }, [quickQuizAskedQuestionIds]);
+
+  useEffect(() => {
+    localStorage.setItem(QUICK_QUIZ_ATTEMPTS_STORAGE_KEY, JSON.stringify(quickQuizAttemptsByQuestionId));
+  }, [quickQuizAttemptsByQuestionId]);
 
   useEffect(() => {
     localStorage.setItem(QOTD_ASSIGNED_BY_DATE_STORAGE_KEY, JSON.stringify(qotdAssignedQuestionByDate));
@@ -2501,6 +2598,25 @@ export default function App() {
       quickQuizQuestions.forEach((question) => next.add(question.id));
       return [...next];
     });
+    setQuickQuizAttemptsByQuestionId((prev) => {
+      const now = Date.now();
+      const next = { ...prev };
+      results.forEach((result, index) => {
+        const question = quickQuizQuestions.find((q) => q.id === result.questionId);
+        if (!question) return;
+        next[result.questionId] = {
+          questionId: result.questionId,
+          dateKey: todayKey,
+          selectedChoiceId: result.selectedChoiceId,
+          isCorrect: result.isCorrect,
+          explanationShown: result.explanation,
+          mnemonicShown: result.mnemonic,
+          bpEarned: result.isCorrect ? 10 : 0,
+          completedAtMs: now + index,
+        };
+      });
+      return next;
+    });
 
     addQuestions(3);
     setQuestionsOfTheDayCompletedTotal((prev) => prev + 3);
@@ -2546,6 +2662,7 @@ export default function App() {
     setQotdAssignedQuestionByDate({});
     setQotdRemainingQuestionIds(shuffleStrings(QOTD_QUESTION_BANK.map((q) => q.id)));
     setQuickQuizAskedQuestionIds([]);
+    setQuickQuizAttemptsByQuestionId({});
     setShowQotdModal(false);
     setShowQotdHistoryModal(false);
     setShowQuickQuizModal(false);
@@ -3901,11 +4018,11 @@ export default function App() {
                     }`}
                   />
                   <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-cyan-300'}`}>
-                    {questionsOfTheDayCompletedTotal}
+                    {quizQuestionsCompletedTotal}
                   </span>
                 </div>
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
-                  Questions of the Day
+                  Quiz Qs Completed
                 </span>
               </button>
               {/* New Row */}
@@ -4415,7 +4532,7 @@ export default function App() {
 
         {showQotdHistoryModal && (
           <QuestionOfTheDayHistoryModal
-            entries={qotdHistoryEntries}
+            entries={quizHistoryEntries}
             onClose={() => setShowQotdHistoryModal(false)}
           />
         )}
