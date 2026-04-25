@@ -88,11 +88,14 @@ function parseQuestionBlock(block: string, index: number): QuestionOfTheDayItem 
   }
   const preChoices = cleanText(bodyBeforeMetadata.slice(0, firstChoiceIndex));
   const boldPromptAtEndMatch = preChoices.match(/\n\n\*\*[\s\S]*?\*\*\s*$/m);
-  const stem = cleanText(
+  const scenarioStem =
     boldPromptAtEndMatch && typeof boldPromptAtEndMatch.index === 'number'
-      ? preChoices.slice(0, boldPromptAtEndMatch.index)
-      : preChoices
-  );
+      ? cleanText(preChoices.slice(0, boldPromptAtEndMatch.index))
+      : preChoices;
+  const promptLine = boldPromptAtEndMatch
+    ? cleanText(boldPromptAtEndMatch[0]).replace(/^\*\*|\*\*$/g, '')
+    : '';
+  const stem = cleanText([scenarioStem, promptLine].filter(Boolean).join('\n\n'));
   const choicesChunk = cleanText(bodyBeforeMetadata.slice(firstChoiceIndex));
   const choiceMatches = [...choicesChunk.matchAll(/^([A-E])\)\s+(.+)$/gm)];
   if (choiceMatches.length < 4) {
