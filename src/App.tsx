@@ -128,6 +128,7 @@ const MIN_SPINNER_MS = 800;
 
 /** Review countdown uses Q × this value; escalates by +1 each local midnight if reviews stay incomplete. */
 const REVIEW_PENALTY_BASE_MULTIPLIER = 1;
+const REVIEW_PENALTY_MAX_MULTIPLIER = 5;
 
 /** Persists local calendar anchor so review BP penalties run on cold start after midnight. */
 const LAST_REVIEW_CALENDAR_ANCHOR_KEY = 'lastReviewCalendarAnchorDayKey';
@@ -441,7 +442,9 @@ export default function App() {
     const saved = localStorage.getItem('reviewPenaltyMultiplier');
     if (saved == null) return REVIEW_PENALTY_BASE_MULTIPLIER;
     const n = parseInt(saved, 10);
-    return Number.isFinite(n) && n >= REVIEW_PENALTY_BASE_MULTIPLIER ? n : REVIEW_PENALTY_BASE_MULTIPLIER;
+    return Number.isFinite(n) && n >= REVIEW_PENALTY_BASE_MULTIPLIER
+      ? Math.min(REVIEW_PENALTY_MAX_MULTIPLIER, n)
+      : REVIEW_PENALTY_BASE_MULTIPLIER;
   });
   const [displayQuestionsToReview, setDisplayQuestionsToReview] = useState(questionsToReviewToday);
   const [isReviewCountdownActive, setIsReviewCountdownActive] = useState(false);
@@ -749,7 +752,13 @@ export default function App() {
     setPracticeTestPercents(p.practiceTestPercents);
     setQuestionsToReviewToday(Math.max(0, p.questionsToReviewToday ?? 0));
     setReviewPenaltyMultiplier(
-      Math.max(REVIEW_PENALTY_BASE_MULTIPLIER, Math.round(p.reviewPenaltyMultiplier ?? REVIEW_PENALTY_BASE_MULTIPLIER))
+      Math.min(
+        REVIEW_PENALTY_MAX_MULTIPLIER,
+        Math.max(
+          REVIEW_PENALTY_BASE_MULTIPLIER,
+          Math.round(p.reviewPenaltyMultiplier ?? REVIEW_PENALTY_BASE_MULTIPLIER)
+        )
+      )
     );
     setTotalQuestionsReviewed(Math.max(0, p.totalQuestionsReviewed ?? 0));
     setLastAchievedIds(mergeDefaultSeenAchievementIds(p.lastAchievedIds));
@@ -1667,7 +1676,7 @@ export default function App() {
         const penalty = pendingQ * mult;
         adjustBonusPointsForDay(cursor, -penalty);
         totalPenalty += penalty;
-        mult = mult + 1;
+        mult = Math.min(REVIEW_PENALTY_MAX_MULTIPLIER, mult + 1);
       } else {
         mult = REVIEW_PENALTY_BASE_MULTIPLIER;
       }

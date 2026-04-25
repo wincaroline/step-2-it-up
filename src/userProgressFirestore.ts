@@ -9,6 +9,8 @@ import {
 import { RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { USER_PROGRESS_VERSION, emptyUserProgress, type UserProgressV1 } from './userProgressSchema';
 
+const REVIEW_PENALTY_MAX_MULTIPLIER = 5;
+
 export function userProgressDocRef(db: Firestore, uid: string) {
   return doc(db, 'users', uid);
 }
@@ -92,7 +94,10 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
     questionsToReviewToday: Math.max(0, asNum(data.questionsToReviewToday, base.questionsToReviewToday)),
     reviewPenaltyMultiplier: Math.max(
       1,
-      Math.round(asNum(data.reviewPenaltyMultiplier, base.reviewPenaltyMultiplier))
+      Math.min(
+        REVIEW_PENALTY_MAX_MULTIPLIER,
+        Math.round(asNum(data.reviewPenaltyMultiplier, base.reviewPenaltyMultiplier))
+      )
     ),
     totalQuestionsReviewed: Math.max(0, asNum(data.totalQuestionsReviewed, base.totalQuestionsReviewed)),
     lastAchievedIds: asStrArr(data.lastAchievedIds, base.lastAchievedIds),
@@ -168,7 +173,10 @@ export function buildProgressFromAppState(args: {
     practiceTestQuestionCounts: args.practiceTestQuestionCounts,
     practiceTestPercents: args.practiceTestPercents,
     questionsToReviewToday: Math.max(0, args.questionsToReviewToday),
-    reviewPenaltyMultiplier: Math.max(1, Math.round(args.reviewPenaltyMultiplier)),
+    reviewPenaltyMultiplier: Math.max(
+      1,
+      Math.min(REVIEW_PENALTY_MAX_MULTIPLIER, Math.round(args.reviewPenaltyMultiplier))
+    ),
     totalQuestionsReviewed: Math.max(0, args.totalQuestionsReviewed),
     lastAchievedIds: args.lastAchievedIds,
     recordDayModalLastShown,
