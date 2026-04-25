@@ -67,6 +67,7 @@ import {
   streakStatNumberColorFromVariant,
   clampDailyGoal,
 } from './utils';
+import { resolveHydratedDailyQuestions } from './dailyProgress';
 import { Bubble, BUBBLE_COUNT_SLEEP, SeaCreature } from './components/OceanElements';
 import { LevelSection } from './components/LevelSection';
 import { AchievementsSection } from './components/AchievementsSection';
@@ -715,12 +716,18 @@ export default function App() {
   }, [settingsDraft, commitSettingsDraftToApp]);
 
   const applyProgressFromCloud = useCallback((p: UserProgressV1) => {
-    historyRef.current = p.history;
-    setDailyQuestions(p.dailyQuestions);
+    const normalizedHistory = p.history ?? {};
+    // Keep daily count anchored to today's history bucket so stale cloud `dailyQuestions`
+    // from pre-midnight snapshots cannot carry over into a new local day.
+    const hydrateTodayKey = dateKeyFromDate(simulatedTimeRef.current ?? new Date());
+    const hydratedDailyQuestions = resolveHydratedDailyQuestions(normalizedHistory, hydrateTodayKey);
+
+    historyRef.current = normalizedHistory;
+    setDailyQuestions(hydratedDailyQuestions);
     setTotalQuestions(p.totalQuestions);
     setBonusPoints(Math.max(0, p.bonusPoints ?? 0));
     setBonusPointsHistory(p.bonusPointsHistory ?? {});
-    setHistory(p.history);
+    setHistory(normalizedHistory);
     setLastLevel(p.lastLevel);
     setSelectedVariants(p.selectedVariants);
     setIsTestMode(p.isTestMode);
