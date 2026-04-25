@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 import { motion } from 'motion/react';
 import { CheckCircle2, X, XCircle } from 'lucide-react';
 
@@ -30,11 +32,19 @@ export function QuickQuizModal({
   results,
   onClose,
 }: QuickQuizModalProps) {
+  const modalScrollRef = useRef<HTMLDivElement | null>(null);
   const resultsByQuestionId = new Map(results.map((result) => [result.questionId, result]));
   const answeredCount = questions.filter((question) => Boolean(selectionsByQuestionId[question.id])).length;
   const canSubmit = questions.length === 3 && answeredCount === 3;
   const correctCount = results.filter((result) => result.isCorrect).length;
   const bonusPoints = correctCount * 10;
+
+  useEffect(() => {
+    if (!hasSubmitted) {
+      return;
+    }
+    modalScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [hasSubmitted]);
 
   return (
     <motion.div
@@ -57,7 +67,11 @@ export function QuickQuizModal({
         >
           <X className="h-5 w-5" />
         </button>
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-6 sm:p-8" data-modal-scroll="true">
+        <div
+          ref={modalScrollRef}
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-6 sm:p-8"
+          data-modal-scroll="true"
+        >
           <h3 className="text-xs font-black uppercase tracking-[0.2em] text-cyan-700">Quick Quiz</h3>
           <p className="mt-2 text-sm font-semibold text-slate-700">Answer all 3 questions, then submit to see your results.</p>
 

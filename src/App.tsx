@@ -2528,10 +2528,28 @@ export default function App() {
     setShowQotdModal(false);
   }, [todayQotdIsSubmitted, todayKey]);
 
+  const buildDisplayedExplanation = useCallback(
+    (question: QuestionOfTheDayItem, selectedChoiceId: string) => {
+      const selectedExplanation = question.explanationsByChoice[selectedChoiceId];
+      if (!selectedExplanation) return null;
+      if (selectedChoiceId === question.correctChoiceId) {
+        return selectedExplanation;
+      }
+
+      const correctExplanation = question.explanationsByChoice[question.correctChoiceId];
+      if (!correctExplanation || correctExplanation === selectedExplanation) {
+        return selectedExplanation;
+      }
+
+      return `${selectedExplanation} ${correctExplanation}`;
+    },
+    [],
+  );
+
   const submitQuestionOfTheDay = useCallback(() => {
     if (!qotdSelectedChoiceId || todayQotdIsSubmitted) return;
     const isCorrect = qotdSelectedChoiceId === currentQotdQuestion.correctChoiceId;
-    const explanation = currentQotdQuestion.explanationsByChoice[qotdSelectedChoiceId];
+    const explanation = buildDisplayedExplanation(currentQotdQuestion, qotdSelectedChoiceId);
     if (!explanation) return;
     const bpEarned = isCorrect ? QOTD_BP_REWARD : 0;
     const attempt: QotdAttemptRecord = {
@@ -2551,7 +2569,7 @@ export default function App() {
     if (bpEarned > 0) {
       adjustBonusPointsForDay(todayKey, bpEarned);
     }
-  }, [qotdSelectedChoiceId, todayQotdIsSubmitted, currentQotdQuestion, todayKey, adjustBonusPointsForDay]);
+  }, [qotdSelectedChoiceId, todayQotdIsSubmitted, currentQotdQuestion, todayKey, adjustBonusPointsForDay, buildDisplayedExplanation]);
 
   const openQuickQuizModal = useCallback(() => {
     const availablePool = QOTD_QUESTION_BANK.filter((q) => !askedQuestionIds.has(q.id));
@@ -2580,11 +2598,12 @@ export default function App() {
     const results = quickQuizQuestions.map((question) => {
       const selectedChoiceId = quickQuizSelectionsByQuestionId[question.id];
       const isCorrect = selectedChoiceId === question.correctChoiceId;
+      const explanation = buildDisplayedExplanation(question, selectedChoiceId) ?? 'No explanation available.';
       return {
         questionId: question.id,
         selectedChoiceId,
         isCorrect,
-        explanation: question.explanationsByChoice[selectedChoiceId] ?? 'No explanation available.',
+        explanation,
         mnemonic: question.mnemonic,
       };
     });
@@ -2623,7 +2642,15 @@ export default function App() {
     if (bonusPointsEarned > 0) {
       adjustBonusPointsForDay(todayKey, bonusPointsEarned);
     }
-  }, [quickQuizHasSubmitted, quickQuizQuestions, quickQuizSelectionsByQuestionId, addQuestions, adjustBonusPointsForDay, todayKey]);
+  }, [
+    quickQuizHasSubmitted,
+    quickQuizQuestions,
+    quickQuizSelectionsByQuestionId,
+    addQuestions,
+    adjustBonusPointsForDay,
+    todayKey,
+    buildDisplayedExplanation,
+  ]);
 
   const clearAllData = () => {
     stopAllCelebrationMusic();

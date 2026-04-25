@@ -98,7 +98,9 @@ function asQotdByDate(v: unknown): Record<string, QotdAttemptRecord> {
   const out: Record<string, QotdAttemptRecord> = {};
   for (const [k, row] of Object.entries(v)) {
     const parsed = asQotdAttemptRecord(row);
-    if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(k)) {
+    const isDateKey = /^\d{4}-\d{2}-\d{2}$/.test(k);
+    const isQuickQuizKey = /^quick-quiz:.+/.test(k);
+    if (parsed && (isDateKey || isQuickQuizKey)) {
       out[k] = parsed;
     }
   }
