@@ -79,11 +79,12 @@ import { PracticeTestScoresChart, type PracticeTestChartPress } from './componen
 import { QuestionButtons } from './components/QuestionButtons';
 import { QuestionOfTheDayHistoryModal } from './components/QuestionOfTheDayHistoryModal';
 import { QuestionOfTheDayModal } from './components/QuestionOfTheDayModal';
+import { QuickQuizModal, type QuickQuizResultItem } from './components/QuickQuizModal';
 import { RecordDayModal } from './components/RecordDayModal';
 import { SettingsModal } from './components/SettingsModal';
 import { VariantPickerModal } from './components/VariantPickerModal';
-import { QOTD_QUESTION_BANK, QOTD_BANK_SIZE } from './data/qotdQuestionBank';
-import type { QotdAttemptRecord } from './types/qotd';
+import { QOTD_QUESTION_BANK } from './data/qotdQuestionBank';
+import type { QotdAttemptRecord, QuestionOfTheDayItem } from './types/qotd';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Achievement, Level } from './types';
 
@@ -234,13 +235,17 @@ function computeAutoWarningMode(hour: number, dailyQuestions: number, dailyGoalQ
 
 const QOTD_BP_REWARD = 10;
 const QOTD_MODAL_DISMISS_MARKER_PREFIX = 'dismissed:';
+const QOTD_REMAINING_IDS_STORAGE_KEY = 'qotdRemainingQuestionIds';
+const QOTD_ASSIGNED_BY_DATE_STORAGE_KEY = 'qotdAssignedQuestionByDate';
+const QUICK_QUIZ_ASKED_IDS_STORAGE_KEY = 'quickQuizAskedQuestionIds';
 
-function qotdIndexFromDateKey(dateKey: string): number {
-  let hash = 0;
-  for (let i = 0; i < dateKey.length; i++) {
-    hash = (hash * 31 + dateKey.charCodeAt(i)) % 2147483647;
+function shuffleStrings(values: string[]): string[] {
+  const arr = [...values];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-  return Math.abs(hash) % Math.max(1, QOTD_BANK_SIZE);
+  return arr;
 }
 
 type SettingsDraftState = {
@@ -332,8 +337,25 @@ export default function App() {
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<{ date: string, count: number, dateKey: string, isExamDay?: boolean } | null>(null);
   const [showQotdModal, setShowQotdModal] = useState(false);
   const [showQotdHistoryModal, setShowQotdHistoryModal] = useState(false);
+  const [showQuickQuizModal, setShowQuickQuizModal] = useState(false);
   const [qotdSelectedChoiceId, setQotdSelectedChoiceId] = useState<string | null>(null);
   const [qotdLastPromptDateKey, setQotdLastPromptDateKey] = useState<string | null>(null);
+  const [quickQuizAskedQuestionIds, setQuickQuizAskedQuestionIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    const raw = localStorage.getItem(QUICK_QUIZ_ASKED_IDS_STORAGE_KEY);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((id): id is string => typeof id === 'string');
+    } catch {
+      return [];
+    }
+  });
+  const [quickQuizQuestions, setQuickQuizQuestions] = useState<QuestionOfTheDayItem[]>([]);
+  const [quickQuizSelectionsByQuestionId, setQuickQuizSelectionsByQuestionId] = useState<Record<string, string>>({});
+  const [quickQuizResults, setQuickQuizResults] = useState<QuickQuizResultItem[]>([]);
+  const [quickQuizHasSubmitted, setQuickQuizHasSubmitted] = useState(false);
   const [questionsOfTheDayCompletedTotal, setQuestionsOfTheDayCompletedTotal] = useState(() => {
     if (typeof window === 'undefined') return 0;
     const raw = localStorage.getItem('questionsOfTheDayCompletedTotal');
@@ -351,6 +373,41 @@ export default function App() {
     } catch {
       return {};
     }
+  });
+  const [qotdAssignedQuestionByDate, setQotdAssignedQuestionByDate] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem(QOTD_ASSIGNED_BY_DATE_STORAGE_KEY);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object') return {};
+      return Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).filter(
+          ([k, v]) => /^\d{4}-\d{2}-\d{2}$/.test(k) && typeof v === 'string'
+        )
+      ) as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  const [qotdRemainingQuestionIds, setQotdRemainingQuestionIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return QOTD_QUESTION_BANK.map((q) => q.id);
+    const raw = localStorage.getItem(QOTD_REMAINING_IDS_STORAGE_KEY);
+    const allIds = QOTD_QUESTION_BANK.map((q) => q.id);
+    const attemptedIds = new Set(Object.values(qotdByDate).map((a) => a.questionId));
+    const fallback = allIds.filter((id) => !attemptedIds.has(id));
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter((id): id is string => typeof id === 'string' && allIds.includes(id));
+          if (valid.length > 0) return valid;
+        }
+      } catch {
+        // fall through to fallback
+      }
+    }
+    return fallback.length > 0 ? shuffleStrings(fallback) : shuffleStrings(allIds);
   });
 
   const [lastLevel, setLastLevel] = useState(() => {
@@ -1097,9 +1154,12 @@ export default function App() {
   /** Clock shown in Settings for simulated time edits (draft until Save). */
   const settingsModalEffectiveTime = settingsDraft.simulatedTime ?? currentTime;
   const todayKey = dateKeyFromDate(effectiveTime);
+  const assignedQotdIdForToday = qotdAssignedQuestionByDate[todayKey] ?? null;
   const currentQotdQuestion = useMemo(
-    () => QOTD_QUESTION_BANK[qotdIndexFromDateKey(todayKey)],
-    [todayKey]
+    () =>
+      QOTD_QUESTION_BANK.find((q) => q.id === assignedQotdIdForToday) ??
+      QOTD_QUESTION_BANK[0],
+    [assignedQotdIdForToday]
   );
   const todayQotdAttempt = qotdByDate[todayKey] ?? null;
   const todayQotdIsSubmitted = todayQotdAttempt !== null;
@@ -1115,6 +1175,14 @@ export default function App() {
   );
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
+  const askedQuestionIds = useMemo(() => {
+    const qotdAttemptedIds = Object.values(qotdByDate).map((attempt) => attempt.questionId);
+    return new Set([...qotdAttemptedIds, ...quickQuizAskedQuestionIds]);
+  }, [qotdByDate, quickQuizAskedQuestionIds]);
+  const quickQuizAvailableQuestionCount = useMemo(
+    () => QOTD_QUESTION_BANK.filter((q) => !askedQuestionIds.has(q.id)).length,
+    [askedQuestionIds]
+  );
 
   useEffect(() => {
     if (isBpCountupActive) return;
@@ -1683,6 +1751,18 @@ export default function App() {
   }, [qotdByDate]);
 
   useEffect(() => {
+    localStorage.setItem(QUICK_QUIZ_ASKED_IDS_STORAGE_KEY, JSON.stringify(quickQuizAskedQuestionIds));
+  }, [quickQuizAskedQuestionIds]);
+
+  useEffect(() => {
+    localStorage.setItem(QOTD_ASSIGNED_BY_DATE_STORAGE_KEY, JSON.stringify(qotdAssignedQuestionByDate));
+  }, [qotdAssignedQuestionByDate]);
+
+  useEffect(() => {
+    localStorage.setItem(QOTD_REMAINING_IDS_STORAGE_KEY, JSON.stringify(qotdRemainingQuestionIds));
+  }, [qotdRemainingQuestionIds]);
+
+  useEffect(() => {
     localStorage.setItem('questionsToReviewToday', questionsToReviewToday.toString());
   }, [questionsToReviewToday]);
 
@@ -1700,6 +1780,18 @@ export default function App() {
   useEffect(() => {
     setQotdSelectedChoiceId(null);
   }, [todayKey]);
+
+  useEffect(() => {
+    if (qotdAssignedQuestionByDate[todayKey]) return;
+    setQotdRemainingQuestionIds((prevRemaining) => {
+      const allIds = QOTD_QUESTION_BANK.map((q) => q.id);
+      const pool = prevRemaining.length > 0 ? prevRemaining : shuffleStrings(allIds);
+      const [nextId, ...rest] = pool;
+      if (!nextId) return prevRemaining;
+      setQotdAssignedQuestionByDate((prev) => ({ ...prev, [todayKey]: nextId }));
+      return rest;
+    });
+  }, [todayKey, qotdAssignedQuestionByDate]);
 
   useEffect(() => {
     const hour = effectiveTime.getHours();
@@ -1840,6 +1932,7 @@ export default function App() {
       showMidnightReviewLossModal ||
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
+      showQuickQuizModal ||
       Boolean(practiceScoreSpotlight) ||
       Boolean(selectedHistoryDate);
     if (isAnyModalOpen) {
@@ -1864,6 +1957,7 @@ export default function App() {
     showMidnightReviewLossModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
+    showQuickQuizModal,
     practiceScoreSpotlight?.dateKey,
     selectedHistoryDate?.dateKey,
   ]);
@@ -1883,6 +1977,7 @@ export default function App() {
       showMidnightReviewLossModal ||
       showLogWinCelebrateModal ||
       showGreatProgressModal ||
+      showQuickQuizModal ||
       Boolean(practiceScoreSpotlight) ||
       Boolean(selectedHistoryDate) ||
       Boolean(selectedAchievement);
@@ -1908,6 +2003,7 @@ export default function App() {
     showMidnightReviewLossModal,
     showLogWinCelebrateModal,
     showGreatProgressModal,
+    showQuickQuizModal,
     practiceScoreSpotlight?.dateKey,
     selectedHistoryDate?.dateKey,
     selectedAchievement?.id,
@@ -2360,6 +2456,59 @@ export default function App() {
     }
   }, [qotdSelectedChoiceId, todayQotdIsSubmitted, currentQotdQuestion, todayKey, adjustBonusPointsForDay]);
 
+  const openQuickQuizModal = useCallback(() => {
+    const availablePool = QOTD_QUESTION_BANK.filter((q) => !askedQuestionIds.has(q.id));
+    if (availablePool.length < 3) return;
+    const selectedQuestions = shuffleStrings(availablePool.map((q) => q.id))
+      .slice(0, 3)
+      .map((id) => QOTD_QUESTION_BANK.find((q) => q.id === id))
+      .filter((q): q is QuestionOfTheDayItem => Boolean(q));
+    if (selectedQuestions.length < 3) return;
+    setQuickQuizQuestions(selectedQuestions);
+    setQuickQuizSelectionsByQuestionId({});
+    setQuickQuizResults([]);
+    setQuickQuizHasSubmitted(false);
+    setShowQuickQuizModal(true);
+  }, [askedQuestionIds]);
+
+  const closeQuickQuizModal = useCallback(() => {
+    setShowQuickQuizModal(false);
+  }, []);
+
+  const submitQuickQuiz = useCallback(() => {
+    if (quickQuizHasSubmitted || quickQuizQuestions.length !== 3) return;
+    const allAnswered = quickQuizQuestions.every((question) => Boolean(quickQuizSelectionsByQuestionId[question.id]));
+    if (!allAnswered) return;
+
+    const results = quickQuizQuestions.map((question) => {
+      const selectedChoiceId = quickQuizSelectionsByQuestionId[question.id];
+      const isCorrect = selectedChoiceId === question.correctChoiceId;
+      return {
+        questionId: question.id,
+        selectedChoiceId,
+        isCorrect,
+        explanation: question.explanationsByChoice[selectedChoiceId] ?? 'No explanation available.',
+        mnemonic: question.mnemonic,
+      };
+    });
+    const correctCount = results.filter((result) => result.isCorrect).length;
+    const bonusPointsEarned = correctCount * 10;
+
+    setQuickQuizResults(results);
+    setQuickQuizHasSubmitted(true);
+    setQuickQuizAskedQuestionIds((prev) => {
+      const next = new Set(prev);
+      quickQuizQuestions.forEach((question) => next.add(question.id));
+      return [...next];
+    });
+
+    addQuestions(3);
+    setQuestionsOfTheDayCompletedTotal((prev) => prev + 3);
+    if (bonusPointsEarned > 0) {
+      adjustBonusPointsForDay(todayKey, bonusPointsEarned);
+    }
+  }, [quickQuizHasSubmitted, quickQuizQuestions, quickQuizSelectionsByQuestionId, addQuestions, adjustBonusPointsForDay, todayKey]);
+
   const clearAllData = () => {
     stopAllCelebrationMusic();
     setDailyQuestions(0);
@@ -2394,10 +2543,18 @@ export default function App() {
     setDailyGoalQuestions(DAILY_GOAL);
     setQuestionsOfTheDayCompletedTotal(0);
     setQotdByDate({});
+    setQotdAssignedQuestionByDate({});
+    setQotdRemainingQuestionIds(shuffleStrings(QOTD_QUESTION_BANK.map((q) => q.id)));
+    setQuickQuizAskedQuestionIds([]);
     setShowQotdModal(false);
     setShowQotdHistoryModal(false);
+    setShowQuickQuizModal(false);
     setQotdSelectedChoiceId(null);
     setQotdLastPromptDateKey(null);
+    setQuickQuizQuestions([]);
+    setQuickQuizSelectionsByQuestionId({});
+    setQuickQuizResults([]);
+    setQuickQuizHasSubmitted(false);
     setAdminSleepModeForceOn(false);
     setEditingExamDate(false);
     setEditingDailyGoal(false);
@@ -3421,6 +3578,23 @@ export default function App() {
             )}
           </motion.section>
 
+          <motion.section {...mainSectionLoadProps} className="section-panel-ocean-frost p-6 flex flex-col items-center text-center gap-3">
+            <button
+              type="button"
+              onClick={openQuickQuizModal}
+              disabled={quickQuizAvailableQuestionCount < 3}
+              className="question-count-clay-btn mt-1 w-full rounded-xl bg-cyan-600 px-4 py-3 text-sm font-black text-white transition-all hover:bg-cyan-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              <span className="flex flex-col items-center leading-tight">
+                <Zap className="mb-1 h-5 w-5 text-white" aria-hidden="true" />
+                <span className="text-xl">Quick Quiz</span>
+                <span className="mt-1 text-[11px] font-semibold tracking-normal text-cyan-100">
+                  3-question lightning round
+                </span>
+              </span>
+            </button>
+          </motion.section>
+
           {(displayQuestionsToReview > 0 || isReviewCountdownActive || reviewZeroTransitionPhase !== null) && (
             <motion.section
               {...mainSectionLoadProps}
@@ -3537,15 +3711,11 @@ export default function App() {
                       ? 'text-white'
                       : 'text-black'
               }`}>
-              <div className={`${
-                isPracticeTestMissionCompleteToday
-                  ? isWarningMode
-                    ? 'text-white'
-                    : 'text-green-500'
-                  : 'text-black'
-              }`}>
-                {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
-              </div>
+              {isPracticeTestMissionCompleteToday && (
+                <div className={`${isWarningMode ? 'text-white' : 'text-green-500'}`}>
+                  <Trophy className="w-8 h-8" />
+                </div>
+              )}
               <div className="flex flex-col items-center text-center">
                 <span className="text-xs opacity-60 tracking-widest">
                   {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
@@ -3629,13 +3799,11 @@ export default function App() {
                     ? 'text-white'
                     : 'text-black'
             }`}>
-            <div className={`${
-              isPracticeTestMissionCompleteToday
-                ? 'text-white'
-                : 'text-black'
-            }`}>
-              {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
-            </div>
+            {isPracticeTestMissionCompleteToday && (
+              <div className="text-white">
+                <Trophy className="w-8 h-8" />
+              </div>
+            )}
             <div className="flex flex-col items-center text-center">
               <span className="text-xs opacity-60 tracking-widest">
                 {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
@@ -4032,15 +4200,11 @@ export default function App() {
                       ? 'text-white'
                       : 'text-black'
               }`}>
-              <div className={`${
-                isPracticeTestMissionCompleteToday
-                  ? isWarningMode
-                    ? 'text-white'
-                    : 'text-green-500'
-                  : 'text-black'
-              }`}>
-                {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
-              </div>
+              {isPracticeTestMissionCompleteToday && (
+                <div className={`${isWarningMode ? 'text-white' : 'text-green-500'}`}>
+                  <Trophy className="w-8 h-8" />
+                </div>
+              )}
               <div className="flex flex-col items-center text-center">
                 <span className="text-xs opacity-60 tracking-widest">
                   {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
@@ -4124,13 +4288,11 @@ export default function App() {
                     ? 'text-white'
                     : 'text-black'
             }`}>
-            <div className={`${
-              isPracticeTestMissionCompleteToday
-                ? 'text-white'
-                : 'text-black'
-            }`}>
-              {isPracticeTestMissionCompleteToday ? <Trophy className="w-8 h-8" /> : <Zap className="w-8 h-8" />}
-            </div>
+            {isPracticeTestMissionCompleteToday && (
+              <div className="text-white">
+                <Trophy className="w-8 h-8" />
+              </div>
+            )}
             <div className="flex flex-col items-center text-center">
               <span className="text-xs opacity-60 tracking-widest">
                 {isPracticeTestMissionCompleteToday ? 'Practice Test Complete' : 'Weekly Mission'}
@@ -4234,6 +4396,20 @@ export default function App() {
             mnemonic={todayQotdAttempt?.mnemonicShown ?? currentQotdQuestion.mnemonic}
             bpEarned={todayQotdAttempt?.bpEarned ?? 0}
             onClose={closeQotdModal}
+          />
+        )}
+
+        {showQuickQuizModal && (
+          <QuickQuizModal
+            questions={quickQuizQuestions}
+            selectionsByQuestionId={quickQuizSelectionsByQuestionId}
+            onSelectChoice={(questionId, choiceId) =>
+              setQuickQuizSelectionsByQuestionId((prev) => ({ ...prev, [questionId]: choiceId }))
+            }
+            onSubmit={submitQuickQuiz}
+            hasSubmitted={quickQuizHasSubmitted}
+            results={quickQuizResults}
+            onClose={closeQuickQuizModal}
           />
         )}
 
