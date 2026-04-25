@@ -28,6 +28,7 @@ import {
   Flag,
   Check,
   Loader2,
+  Brain,
 } from 'lucide-react';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 
@@ -79,6 +80,10 @@ import { SettingsModal } from './components/SettingsModal';
 import { GoalReachedModal } from './components/GoalReachedModal';
 import { RecordDayModal } from './components/RecordDayModal';
 import { VariantPickerModal } from './components/VariantPickerModal';
+import { QuestionOfTheDayModal } from './components/QuestionOfTheDayModal';
+import { QuestionOfTheDayHistoryModal } from './components/QuestionOfTheDayHistoryModal';
+import { QOTD_QUESTION_BANK, QOTD_BANK_SIZE } from './data/qotdQuestionBank';
+import type { QotdAttemptRecord } from './types/qotd';
 import { HARD_ASS_STATEMENTS } from './warningCopy';
 import type { Level, Achievement } from './types';
 
@@ -202,7 +207,7 @@ function mergeBonusPointsHistoryDay(
 /** Canonical total questions from day buckets; ignores invalid/negative values. */
 function sumHistoryQuestions(history: Record<string, unknown> | null | undefined): number {
   if (!history || typeof history !== 'object') return 0;
-  return Object.values(history).reduce((sum, val) => {
+  return Object.values(history).reduce<number>((sum, val) => {
     const n = Number(val);
     if (!Number.isFinite(n)) return sum;
     return sum + Math.max(0, n);
@@ -225,6 +230,17 @@ function computeAutoWarningMode(hour: number, dailyQuestions: number, dailyGoalQ
   const inEveningWindow = hour >= 20 && hour <= 23;
   if (!inEveningWindow) return false;
   return dailyQuestions < goal / 2;
+}
+
+const QOTD_BP_REWARD = 10;
+const QOTD_MODAL_DISMISS_MARKER_PREFIX = 'dismissed:';
+
+function qotdIndexFromDateKey(dateKey: string): number {
+  let hash = 0;
+  for (let i = 0; i < dateKey.length; i++) {
+    hash = (hash * 31 + dateKey.charCodeAt(i)) % 2147483647;
+  }
+  return Math.abs(hash) % Math.max(1, QOTD_BANK_SIZE);
 }
 
 type SettingsDraftState = {
@@ -315,6 +331,28 @@ export default function App() {
   }, [history]);
 
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<{ date: string, count: number, dateKey: string, isExamDay?: boolean } | null>(null);
+  const [showQotdModal, setShowQotdModal] = useState(false);
+  const [showQotdHistoryModal, setShowQotdHistoryModal] = useState(false);
+  const [qotdSelectedChoiceId, setQotdSelectedChoiceId] = useState<string | null>(null);
+  const [qotdLastPromptDateKey, setQotdLastPromptDateKey] = useState<string | null>(null);
+  const [questionsOfTheDayCompletedTotal, setQuestionsOfTheDayCompletedTotal] = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    const raw = localStorage.getItem('questionsOfTheDayCompletedTotal');
+    const n = raw ? parseInt(raw, 10) : 0;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  });
+  const [qotdByDate, setQotdByDate] = useState<Record<string, QotdAttemptRecord>>(() => {
+    if (typeof window === 'undefined') return {};
+    const raw = localStorage.getItem('qotdByDate');
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object') return {};
+      return parsed as Record<string, QotdAttemptRecord>;
+    } catch {
+      return {};
+    }
+  });
 
   const [lastLevel, setLastLevel] = useState(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('lastLevel') : null;
@@ -761,6 +799,8 @@ export default function App() {
       )
     );
     setTotalQuestionsReviewed(Math.max(0, p.totalQuestionsReviewed ?? 0));
+    setQuestionsOfTheDayCompletedTotal(Math.max(0, p.questionsOfTheDayCompletedTotal ?? 0));
+    setQotdByDate(p.qotdByDate ?? {});
     setLastAchievedIds(mergeDefaultSeenAchievementIds(p.lastAchievedIds));
     setExamDateKey(p.examDateKey);
     setDailyGoalQuestions(clampDailyGoal(p.dailyGoalQuestions));
@@ -803,6 +843,8 @@ export default function App() {
         questionsToReviewToday,
         reviewPenaltyMultiplier,
         totalQuestionsReviewed,
+        questionsOfTheDayCompletedTotal,
+        qotdByDate,
         lastAchievedIds,
         examDateKey,
         dailyGoalQuestions,
@@ -826,6 +868,8 @@ export default function App() {
       questionsToReviewToday,
       reviewPenaltyMultiplier,
       totalQuestionsReviewed,
+      questionsOfTheDayCompletedTotal,
+      qotdByDate,
       lastAchievedIds,
       examDateKey,
       dailyGoalQuestions,
@@ -1054,6 +1098,22 @@ export default function App() {
   /** Clock shown in Settings for simulated time edits (draft until Save). */
   const settingsModalEffectiveTime = settingsDraft.simulatedTime ?? currentTime;
   const todayKey = dateKeyFromDate(effectiveTime);
+  const currentQotdQuestion = useMemo(
+    () => QOTD_QUESTION_BANK[qotdIndexFromDateKey(todayKey)],
+    [todayKey]
+  );
+  const todayQotdAttempt = qotdByDate[todayKey] ?? null;
+  const todayQotdIsSubmitted = todayQotdAttempt !== null;
+  const qotdHistoryEntries = useMemo(
+    () =>
+      Object.values(qotdByDate as Record<string, QotdAttemptRecord>)
+        .sort((a, b) => b.completedAtMs - a.completedAtMs)
+        .map((attempt) => ({
+          attempt,
+          question: QOTD_QUESTION_BANK.find((q) => q.id === attempt.questionId) ?? null,
+        })),
+    [qotdByDate]
+  );
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
 
@@ -1616,6 +1676,14 @@ export default function App() {
   }, [bonusPointsHistory]);
 
   useEffect(() => {
+    localStorage.setItem('questionsOfTheDayCompletedTotal', questionsOfTheDayCompletedTotal.toString());
+  }, [questionsOfTheDayCompletedTotal]);
+
+  useEffect(() => {
+    localStorage.setItem('qotdByDate', JSON.stringify(qotdByDate));
+  }, [qotdByDate]);
+
+  useEffect(() => {
     localStorage.setItem('questionsToReviewToday', questionsToReviewToday.toString());
   }, [questionsToReviewToday]);
 
@@ -1629,6 +1697,19 @@ export default function App() {
       setReviewPenaltyMultiplier(REVIEW_PENALTY_BASE_MULTIPLIER);
     }
   }, [questionsToReviewToday]);
+
+  useEffect(() => {
+    setQotdSelectedChoiceId(null);
+  }, [todayKey]);
+
+  useEffect(() => {
+    const hour = effectiveTime.getHours();
+    if (hour < 12 || todayQotdIsSubmitted) return;
+    const dismissMarker = `${QOTD_MODAL_DISMISS_MARKER_PREFIX}${todayKey}`;
+    if (qotdLastPromptDateKey === dismissMarker) return;
+    setShowQotdModal(true);
+    setQotdLastPromptDateKey(todayKey);
+  }, [effectiveTime, todayKey, todayQotdIsSubmitted, qotdLastPromptDateKey]);
 
   useEffect(() => {
     localStorage.setItem('totalQuestionsReviewed', totalQuestionsReviewed.toString());
@@ -2248,6 +2329,38 @@ export default function App() {
     };
   }, [showLogWinCelebrateModal, logWinCelebrate, isMuted, stopAllCelebrationMusic]);
 
+  const closeQotdModal = useCallback(() => {
+    if (!todayQotdIsSubmitted) {
+      setQotdLastPromptDateKey(`${QOTD_MODAL_DISMISS_MARKER_PREFIX}${todayKey}`);
+    }
+    setShowQotdModal(false);
+  }, [todayQotdIsSubmitted, todayKey]);
+
+  const submitQuestionOfTheDay = useCallback(() => {
+    if (!qotdSelectedChoiceId || todayQotdIsSubmitted) return;
+    const isCorrect = qotdSelectedChoiceId === currentQotdQuestion.correctChoiceId;
+    const explanation = currentQotdQuestion.explanationsByChoice[qotdSelectedChoiceId];
+    if (!explanation) return;
+    const bpEarned = isCorrect ? QOTD_BP_REWARD : 0;
+    const attempt: QotdAttemptRecord = {
+      dateKey: todayKey,
+      questionId: currentQotdQuestion.id,
+      selectedChoiceId: qotdSelectedChoiceId,
+      isCorrect,
+      explanationShown: explanation,
+      mnemonicShown: currentQotdQuestion.mnemonic,
+      bpEarned,
+      completedAtMs: Date.now(),
+    };
+
+    setQotdByDate((prev) => ({ ...prev, [todayKey]: attempt }));
+    setQuestionsOfTheDayCompletedTotal((prev) => prev + 1);
+    setDailyQuestions((prev) => prev + 1);
+    if (bpEarned > 0) {
+      adjustBonusPointsForDay(todayKey, bpEarned);
+    }
+  }, [qotdSelectedChoiceId, todayQotdIsSubmitted, currentQotdQuestion, todayKey, adjustBonusPointsForDay]);
+
   const clearAllData = () => {
     stopAllCelebrationMusic();
     setDailyQuestions(0);
@@ -2280,6 +2393,12 @@ export default function App() {
     setIsWarningMode(false);
     setExamDateKey(DEFAULT_EXAM_DATE_KEY);
     setDailyGoalQuestions(DAILY_GOAL);
+    setQuestionsOfTheDayCompletedTotal(0);
+    setQotdByDate({});
+    setShowQotdModal(false);
+    setShowQotdHistoryModal(false);
+    setQotdSelectedChoiceId(null);
+    setQotdLastPromptDateKey(null);
     setAdminSleepModeForceOn(false);
     setEditingExamDate(false);
     setEditingDailyGoal(false);
@@ -3603,6 +3722,25 @@ export default function App() {
                   Questions Reviewed
                 </span>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowQotdHistoryModal(true)}
+                className="flex flex-col items-center text-center rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+              >
+                <div className="flex items-center gap-2">
+                  <Brain
+                    className={`w-6 h-6 ${
+                      isSleepMode ? 'text-slate-400' : isWarningMode ? 'text-red-500' : 'text-cyan-300'
+                    }`}
+                  />
+                  <span className={`text-4xl font-black drop-shadow-md ${isWarningMode ? 'text-white/80' : 'text-cyan-300'}`}>
+                    {questionsOfTheDayCompletedTotal}
+                  </span>
+                </div>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] mt-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+                  Questions of the Day
+                </span>
+              </button>
               {/* New Row */}
               <div className="flex flex-col items-center text-center">
                 <div className="flex items-center gap-2">
@@ -4085,6 +4223,28 @@ export default function App() {
 
       {/* --- Modals --- */}
       <AnimatePresence>
+        {showQotdModal && (
+          <QuestionOfTheDayModal
+            question={currentQotdQuestion}
+            selectedChoiceId={todayQotdAttempt?.selectedChoiceId ?? qotdSelectedChoiceId}
+            onSelectChoice={setQotdSelectedChoiceId}
+            onSubmit={submitQuestionOfTheDay}
+            hasSubmitted={todayQotdIsSubmitted}
+            isCorrect={todayQotdAttempt?.isCorrect ?? false}
+            explanation={todayQotdAttempt?.explanationShown ?? ''}
+            mnemonic={todayQotdAttempt?.mnemonicShown ?? currentQotdQuestion.mnemonic}
+            bpEarned={todayQotdAttempt?.bpEarned ?? 0}
+            onClose={closeQotdModal}
+          />
+        )}
+
+        {showQotdHistoryModal && (
+          <QuestionOfTheDayHistoryModal
+            entries={qotdHistoryEntries}
+            onClose={() => setShowQotdHistoryModal(false)}
+          />
+        )}
+
         {/* Practice test completion: questions & score (before achievement celebration) */}
         {showPracticeTestEntryModal && (
           <motion.div

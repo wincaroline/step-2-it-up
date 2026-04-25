@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { RECORD_DAY_MODAL_LAST_SHOWN_KEY } from './constants';
 import { USER_PROGRESS_VERSION, emptyUserProgress, type UserProgressV1 } from './userProgressSchema';
+import type { QotdAttemptRecord } from './types/qotd';
 
 const REVIEW_PENALTY_MAX_MULTIPLIER = 5;
 
@@ -66,6 +67,44 @@ function asDailyGoalQuestions(v: unknown, fallback: number): number {
   return Math.min(9999, Math.round(n));
 }
 
+function asQotdAttemptRecord(v: unknown): QotdAttemptRecord | null {
+  if (!v || typeof v !== 'object') return null;
+  const row = v as Record<string, unknown>;
+  const dateKey = typeof row.dateKey === 'string' ? row.dateKey : '';
+  const questionId = typeof row.questionId === 'string' ? row.questionId : '';
+  const selectedChoiceId = typeof row.selectedChoiceId === 'string' ? row.selectedChoiceId : '';
+  const explanationShown = typeof row.explanationShown === 'string' ? row.explanationShown : '';
+  const mnemonicShown = typeof row.mnemonicShown === 'string' ? row.mnemonicShown : '';
+  const isCorrect = row.isCorrect === true;
+  const bpEarnedRaw = typeof row.bpEarned === 'number' ? row.bpEarned : Number(row.bpEarned);
+  const completedAtMsRaw =
+    typeof row.completedAtMs === 'number' ? row.completedAtMs : Number(row.completedAtMs);
+  if (!dateKey || !questionId || !selectedChoiceId || !explanationShown || !mnemonicShown) return null;
+  if (!Number.isFinite(bpEarnedRaw) || !Number.isFinite(completedAtMsRaw)) return null;
+  return {
+    dateKey,
+    questionId,
+    selectedChoiceId,
+    isCorrect,
+    explanationShown,
+    mnemonicShown,
+    bpEarned: Math.max(0, Math.round(bpEarnedRaw)),
+    completedAtMs: Math.max(0, Math.round(completedAtMsRaw)),
+  };
+}
+
+function asQotdByDate(v: unknown): Record<string, QotdAttemptRecord> {
+  if (!v || typeof v !== 'object') return {};
+  const out: Record<string, QotdAttemptRecord> = {};
+  for (const [k, row] of Object.entries(v)) {
+    const parsed = asQotdAttemptRecord(row);
+    if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(k)) {
+      out[k] = parsed;
+    }
+  }
+  return out;
+}
+
 /** Reads Firestore document fields into `UserProgressV1`. Missing fields use defaults. Accepts legacy `v: 1`. */
 export function parseUserProgressDoc(data: DocumentData | undefined): UserProgressV1 | null {
   if (!data || typeof data !== 'object') return null;
@@ -107,6 +146,11 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
         : null,
     examDateKey: asExamDateKey(data.examDateKey, base.examDateKey),
     dailyGoalQuestions: asDailyGoalQuestions(data.dailyGoalQuestions, base.dailyGoalQuestions),
+    questionsOfTheDayCompletedTotal: Math.max(
+      0,
+      asNum(data.questionsOfTheDayCompletedTotal, base.questionsOfTheDayCompletedTotal)
+    ),
+    qotdByDate: asQotdByDate(data.qotdByDate),
   };
 }
 
@@ -147,6 +191,8 @@ export function buildProgressFromAppState(args: {
   recordDayModalLastShown?: string | null;
   examDateKey: string;
   dailyGoalQuestions: number;
+  questionsOfTheDayCompletedTotal: number;
+  qotdByDate: Record<string, QotdAttemptRecord>;
 }): UserProgressV1 {
   let recordDayModalLastShown: string | null = null;
   if (args.recordDayModalLastShown !== undefined) {
@@ -182,6 +228,8 @@ export function buildProgressFromAppState(args: {
     recordDayModalLastShown,
     examDateKey: args.examDateKey,
     dailyGoalQuestions: args.dailyGoalQuestions,
+    questionsOfTheDayCompletedTotal: Math.max(0, Math.round(args.questionsOfTheDayCompletedTotal)),
+    qotdByDate: args.qotdByDate,
   };
 }
 

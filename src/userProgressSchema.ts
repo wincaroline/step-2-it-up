@@ -1,4 +1,5 @@
 import { DAILY_GOAL, DEFAULT_EXAM_DATE_KEY } from './constants';
+import type { QotdAttemptRecord } from './types/qotd';
 
 /** Persisted app progress (Firestore document `users/{uid}`). Bump `v` when shape changes. */
 export const USER_PROGRESS_VERSION = 2 as const;
@@ -32,6 +33,8 @@ export type UserProgressV1 = {
   /** Step 2 exam day in local calendar `YYYY-MM-DD`. */
   examDateKey: string;
   dailyGoalQuestions: number;
+  questionsOfTheDayCompletedTotal: number;
+  qotdByDate: Record<string, QotdAttemptRecord>;
 };
 
 export function emptyUserProgress(): UserProgressV1 {
@@ -59,5 +62,7 @@ export function emptyUserProgress(): UserProgressV1 {
     recordDayModalLastShown: null,
     examDateKey: DEFAULT_EXAM_DATE_KEY,
     dailyGoalQuestions: DAILY_GOAL,
+    questionsOfTheDayCompletedTotal: 0,
+    qotdByDate: {},
   };
 }
