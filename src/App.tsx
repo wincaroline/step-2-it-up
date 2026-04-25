@@ -1433,7 +1433,9 @@ export default function App() {
                 isExamDay,
               })
             }
-            className={`question-count-clay-btn aspect-square rounded-lg flex items-center justify-center text-xs font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative min-h-0 ${
+            className={`question-count-clay-btn aspect-square rounded-lg flex items-center justify-center text-xs font-black cursor-pointer transition-all hover:scale-110 active:scale-95 relative min-h-0 border-2 ${
+              isToday ? 'border-white' : 'border-transparent'
+            } ${
               isExamDay
                 ? 'bg-red-600 text-white animate-pulse shadow-[0_0_15px_rgba(220,38,38,0.5)]'
                 : isFuture && !isTestMode
