@@ -12,8 +12,11 @@ import type { UserProgressV1 } from './userProgressSchema';
 
 /**
  * Subscribes to `users/{uid}`. First snapshot: migrates local state if missing, otherwise applies remote.
- * Later snapshots: ignores stale server versions while the user has local edits not yet persisted
- * (avoids onSnapshot overwriting new UI with an old document — the "flash then revert" bug).
+ * Later snapshots: if local progress is ahead of the last known persisted snapshot, never apply a
+ * diverging remote (even with a higher updatedAt) until the server echoes the same serialized
+ * state — avoids the "count drops then pops back" flash from snapshot races with debounced save.
+ * Also drops duplicate/same-`updatedAt` listener deliveries so we do not re-apply a stale full doc
+ * after local and last-pushed are already in sync (fixes Questions Done Today as well as review).
  */
 export function useFirestoreUserProgressListener(options: {
   uid: string | null;
@@ -137,7 +140,16 @@ export function useFirestoreUserProgressListener(options: {
         }
 
         const hasUnsavedEdits = localJson !== pushedRef.current;
-        if (hasUnsavedEdits && serverMs <= seenRef.current) {
+        if (hasUnsavedEdits) {
+          // Local state differs from last pushed snapshot. Do not clobber with a server doc that
+          // still does not match the client (stale or out-of-order snapshot, even with newer
+          // updatedAt) — the matching remote will arrive on the next echo or a later update.
+          return;
+        }
+
+        if (serverMs <= seenRef.current) {
+          // In sync with last known server revision; a divergent `parsed` is a duplicate/echo we
+          // have already "seen" by time — do not apply and revert daily / review / etc.
           return;
         }
 
