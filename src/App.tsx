@@ -198,6 +198,16 @@ function mergeBonusPointsHistoryDay(
   return next;
 }
 
+/** Canonical total questions from day buckets; ignores invalid/negative values. */
+function sumHistoryQuestions(history: Record<string, unknown> | null | undefined): number {
+  if (!history || typeof history !== 'object') return 0;
+  return Object.values(history).reduce((sum, val) => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return sum;
+    return sum + Math.max(0, n);
+  }, 0);
+}
+
 /** Shared page-load fade props for main panels (no movement, no stagger). */
 const mainSectionLoadProps = {
   initial: { opacity: 0 },
@@ -260,9 +270,8 @@ export default function App() {
     const savedHistory = typeof window !== 'undefined' ? localStorage.getItem('history') : null;
     if (savedHistory) {
       try {
-        const parsedHistory = JSON.parse(savedHistory);
-        const calculatedTotal = Object.values(parsedHistory).reduce((sum: number, val: any) => sum + Number(val), 0);
-        return calculatedTotal;
+        const parsedHistory = JSON.parse(savedHistory) as Record<string, unknown>;
+        return sumHistoryQuestions(parsedHistory);
       } catch (e) {
         console.error("Failed to parse history for totalQuestions", e);
       }
@@ -724,7 +733,7 @@ export default function App() {
 
     historyRef.current = normalizedHistory;
     setDailyQuestions(hydratedDailyQuestions);
-    setTotalQuestions(p.totalQuestions);
+    setTotalQuestions(sumHistoryQuestions(normalizedHistory));
     setBonusPoints(Math.max(0, p.bonusPoints ?? 0));
     setBonusPointsHistory(p.bonusPointsHistory ?? {});
     setHistory(normalizedHistory);
@@ -755,11 +764,20 @@ export default function App() {
     }
   }, []);
 
+  const totalQuestionsFromHistory = useMemo(
+    () => sumHistoryQuestions(history),
+    [history]
+  );
+
+  useEffect(() => {
+    setTotalQuestions((prev) => (prev === totalQuestionsFromHistory ? prev : totalQuestionsFromHistory));
+  }, [totalQuestionsFromHistory]);
+
   const progressSnapshot = useMemo(
     () =>
       buildProgressFromAppState({
         dailyQuestions,
-        totalQuestions,
+        totalQuestions: totalQuestionsFromHistory,
         bonusPoints,
         bonusPointsHistory,
         history,
@@ -782,7 +800,7 @@ export default function App() {
       }),
     [
       dailyQuestions,
-      totalQuestions,
+      totalQuestionsFromHistory,
       bonusPoints,
       bonusPointsHistory,
       history,
