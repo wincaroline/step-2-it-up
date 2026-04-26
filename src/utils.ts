@@ -58,17 +58,60 @@ export function preloadGraphicUrls(urls: string[]): void {
 }
 
 
-export function dateKeyFromDate(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const EASTERN_TIME_ZONE = 'America/New_York';
+
+function easternDateParts(d: Date): { year: number; month: number; day: number; hour: number } {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: EASTERN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = formatter.formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes): number => {
+    const value = parts.find((p) => p.type === type)?.value;
+    return Number(value ?? '0');
+  };
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    hour: get('hour'),
+  };
 }
 
-/** Next local calendar day after `YYYY-MM-DD` (for midnight review-penalty catch-up). */
+/** Calendar date key in Eastern Time (`America/New_York`). */
+export function dateKeyFromDate(d: Date) {
+  const { year, month, day } = easternDateParts(d);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Next calendar day after `YYYY-MM-DD`, independent of device local timezone. */
 export function nextCalendarDateKey(dateKey: string): string {
   const parts = dateKey.split('-').map(Number);
   if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return dateKey;
   const [y, m, d] = parts;
-  const dt = new Date(y, m - 1, d + 1);
-  return dateKeyFromDate(dt);
+  const dt = new Date(Date.UTC(y, m - 1, d + 1));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Hour-of-day in Eastern Time (`America/New_York`), 0-23. */
+export function easternHourFromDate(d: Date): number {
+  return easternDateParts(d).hour;
+}
+
+/** Human-readable ET timestamp for header/clock UI. */
+export function formatEasternDateTime(d: Date): string {
+  return d.toLocaleString('en-US', {
+    timeZone: EASTERN_TIME_ZONE,
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 /** Format local calendar `YYYY-MM-DD` for display (matches Settings / History labels). */

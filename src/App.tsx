@@ -58,6 +58,8 @@ import {
   calculateCurrentStreak,
   getAchievementStatus,
   dateKeyFromDate,
+  easternHourFromDate,
+  formatEasternDateTime,
   nextCalendarDateKey,
   getHistoryColor,
   PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS,
@@ -225,7 +227,7 @@ const mainSectionLoadProps = {
   },
 } as const;
 
-/** Local evening window 8pm–midnight (`hour` from Date#getHours). Warn if below half of today's goal. */
+/** Eastern evening window 8pm–midnight. Warn if below half of today's goal. */
 function computeAutoWarningMode(hour: number, dailyQuestions: number, dailyGoalQuestions: number): boolean {
   const goal = Math.max(1, dailyGoalQuestions);
   const inEveningWindow = hour >= 20 && hour <= 23;
@@ -786,7 +788,7 @@ export default function App() {
         setAdminSleepModeForceOn(false);
         setShowTestCodeInput(false);
         setTestCodeInput('');
-        const hours = new Date().getHours();
+        const hours = easternHourFromDate(new Date());
         setIsWarningMode(computeAutoWarningMode(hours, dailyQuestions, d.dailyGoalQuestions));
       } else {
         setIsTestMode(true);
@@ -812,7 +814,7 @@ export default function App() {
       adminSleepModeForceOn: false,
       showTestCodeInput: false,
       testCodeInput: '',
-      isWarningMode: computeAutoWarningMode(new Date().getHours(), dailyQuestions, prev.dailyGoalQuestions),
+      isWarningMode: computeAutoWarningMode(easternHourFromDate(new Date()), dailyQuestions, prev.dailyGoalQuestions),
     }));
   }, [dailyQuestions]);
 
@@ -1435,7 +1437,7 @@ export default function App() {
   };
 
   const naturalSleepMode = useMemo(() => {
-    const hours = effectiveTime.getHours();
+    const hours = easternHourFromDate(effectiveTime);
     return hours >= 0 && hours < 4;
   }, [effectiveTime]);
 
@@ -1445,14 +1447,14 @@ export default function App() {
   }, [isTestMode, adminSleepModeForceOn, naturalSleepMode]);
 
   const isSunsetMode = useMemo(() => {
-    const hours = effectiveTime.getHours();
+    const hours = easternHourFromDate(effectiveTime);
     const inSunsetWindow = hours >= 19 && hours <= 23;
     return inSunsetWindow && !isWarningMode && !isSleepMode;
   }, [effectiveTime, isWarningMode, isSleepMode]);
 
   useEffect(() => {
     if (isTestMode) return;
-    const hours = effectiveTime.getHours();
+    const hours = easternHourFromDate(effectiveTime);
     setIsWarningMode(computeAutoWarningMode(hours, dailyQuestions, dailyGoalQuestions));
   }, [dailyQuestions, dailyGoalQuestions, effectiveTime, isTestMode]);
 
@@ -1898,7 +1900,7 @@ export default function App() {
   }, [todayKey, qotdAssignedQuestionByDate]);
 
   useEffect(() => {
-    const hour = effectiveTime.getHours();
+    const hour = easternHourFromDate(effectiveTime);
     if (hour < 12 || todayQotdIsSubmitted) return;
     const dismissMarker = `${QOTD_MODAL_DISMISS_MARKER_PREFIX}${todayKey}`;
     if (qotdLastPromptDateKey === dismissMarker) return;
@@ -3622,11 +3624,7 @@ export default function App() {
           <div
             className={`font-black text-xs sm:text-lg tracking-wider ${isWarningMode ? 'header-time-warning' : ''}`}
           >
-            {`${effectiveTime.toLocaleDateString('en-US', { month: 'short' })} ${effectiveTime.getDate()} ${effectiveTime.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-            })} ET`}
+            {`${formatEasternDateTime(effectiveTime)} ET`}
           </div>
           <div className="flex gap-2 sm:gap-3">
             <button
