@@ -217,6 +217,21 @@ function sumHistoryQuestions(history: Record<string, unknown> | null | undefined
   }, 0);
 }
 
+function isIsoDateKey(key: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(key);
+}
+
+function sanitizeQotdByDateMap(input: unknown): Record<string, QotdAttemptRecord> {
+  if (!input || typeof input !== 'object') return {};
+  const parsed = input as Record<string, unknown>;
+  const out: Record<string, QotdAttemptRecord> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!isIsoDateKey(key) || !value || typeof value !== 'object') continue;
+    out[key] = value as QotdAttemptRecord;
+  }
+  return out;
+}
+
 /** Shared page-load fade props for main panels (no movement, no stagger). */
 const mainSectionLoadProps = {
   initial: { opacity: 0 },
@@ -400,8 +415,7 @@ export default function App() {
     if (!raw) return {};
     try {
       const parsed = JSON.parse(raw) as unknown;
-      if (!parsed || typeof parsed !== 'object') return {};
-      return parsed as Record<string, QotdAttemptRecord>;
+      return sanitizeQotdByDateMap(parsed);
     } catch {
       return {};
     }
@@ -890,7 +904,7 @@ export default function App() {
     );
     setTotalQuestionsReviewed(Math.max(0, p.totalQuestionsReviewed ?? 0));
     setQuestionsOfTheDayCompletedTotal(Math.max(0, p.questionsOfTheDayCompletedTotal ?? 0));
-    setQotdByDate(p.qotdByDate ?? {});
+    setQotdByDate(sanitizeQotdByDateMap(p.qotdByDate));
     setLastAchievedIds(mergeDefaultSeenAchievementIds(p.lastAchievedIds));
     setExamDateKey(p.examDateKey);
     setDailyGoalQuestions(clampDailyGoal(p.dailyGoalQuestions));
@@ -907,29 +921,6 @@ export default function App() {
     () => sumHistoryQuestions(history),
     [history]
   );
-
-  const qotdByDateForStorage = useMemo(() => {
-    const merged: Record<string, QotdAttemptRecord> = { ...qotdByDate };
-    const now = Date.now();
-
-    quickQuizAskedQuestionIds.forEach((questionId, index) => {
-      const attempt = quickQuizAttemptsByQuestionId[questionId];
-      const storageKey = `quick-quiz:${questionId}`;
-      merged[storageKey] = {
-        dateKey: attempt?.dateKey ?? 'unknown-date',
-        questionId,
-        selectedChoiceId: attempt?.selectedChoiceId ?? 'N/A',
-        isCorrect: attempt?.isCorrect ?? false,
-        explanationShown:
-          attempt?.explanationShown ?? 'Legacy quick quiz entry. Update with user response if available.',
-        mnemonicShown: attempt?.mnemonicShown ?? 'N/A',
-        bpEarned: attempt?.bpEarned ?? 0,
-        completedAtMs: attempt?.completedAtMs ?? now + index,
-      };
-    });
-
-    return merged;
-  }, [qotdByDate, quickQuizAskedQuestionIds, quickQuizAttemptsByQuestionId]);
 
   useEffect(() => {
     setTotalQuestions((prev) => (prev === totalQuestionsFromHistory ? prev : totalQuestionsFromHistory));
@@ -958,7 +949,7 @@ export default function App() {
         reviewPenaltyMultiplier,
         totalQuestionsReviewed,
         questionsOfTheDayCompletedTotal,
-        qotdByDate: qotdByDateForStorage,
+        qotdByDate,
         lastAchievedIds,
         examDateKey,
         dailyGoalQuestions,
@@ -985,7 +976,7 @@ export default function App() {
       reviewPenaltyMultiplier,
       totalQuestionsReviewed,
       questionsOfTheDayCompletedTotal,
-      qotdByDateForStorage,
+      qotdByDate,
       lastAchievedIds,
       examDateKey,
       dailyGoalQuestions,
@@ -1252,7 +1243,7 @@ export default function App() {
           explanationShown: 'Result unavailable for this older quick quiz attempt.',
           mnemonicShown: 'Not available.',
           bpEarned: 0,
-          completedAtMs: idx,
+          completedAtMs: 0 - idx,
         };
       }
       return {
@@ -1269,7 +1260,15 @@ export default function App() {
       };
     });
 
-    return [...qotdEntries, ...quickQuizEntries].sort((a, b) => b.completedAtMs - a.completedAtMs);
+    const dedupedEntries = [...qotdEntries, ...quickQuizEntries].filter((entry, index, arr) => {
+      const key = `${entry.source}:${entry.dateKey}:${entry.question?.id ?? entry.id}:${entry.completedAtMs}`;
+      return arr.findIndex((candidate) => {
+        const candidateKey = `${candidate.source}:${candidate.dateKey}:${candidate.question?.id ?? candidate.id}:${candidate.completedAtMs}`;
+        return candidateKey === key;
+      }) === index;
+    });
+
+    return dedupedEntries.sort((a, b) => b.completedAtMs - a.completedAtMs);
   }, [qotdByDate, quickQuizAskedQuestionIds, quickQuizAttemptsByQuestionId]);
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
