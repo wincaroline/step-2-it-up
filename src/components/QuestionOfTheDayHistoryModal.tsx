@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 import type { QotdClinicalDomain, QotdCompetency, QuestionOfTheDayItem } from '../types/qotd';
 
@@ -25,6 +26,33 @@ type StatRow = {
   total: number;
   percentage: number;
 };
+
+function formatCompletedAtEasternTime(timestampMs: number): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(new Date(timestampMs));
+  const valueByType = new Map(parts.map((part) => [part.type, part.value]));
+  const year = valueByType.get('year') ?? '0000';
+  const month = valueByType.get('month') ?? '00';
+  const day = valueByType.get('day') ?? '00';
+  const hour = valueByType.get('hour') ?? '00';
+  const minute = valueByType.get('minute') ?? '00';
+  const dayPeriod = valueByType.get('dayPeriod') ?? '';
+  return `${year}-${month}-${day} ${hour}:${minute} ${dayPeriod} ET`;
+}
+
+function getQbankQuestionNumber(questionId: string | undefined): string {
+  if (!questionId) return '#?';
+  const match = questionId.match(/(\d+)$/);
+  if (!match) return '#?';
+  return `#${String(Number.parseInt(match[1], 10))}`;
+}
 
 function getBarColorClass(percentage: number): string {
   if (percentage <= 40) return 'bg-rose-500';
@@ -71,6 +99,8 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
   const [domainFilter, setDomainFilter] = useState<'all' | QotdClinicalDomain>('all');
   const [competencyFilter, setCompetencyFilter] = useState<'all' | QotdCompetency>('all');
   const [resultFilter, setResultFilter] = useState<'both' | 'correct' | 'incorrect'>('both');
+  const [sortBy, setSortBy] = useState<'date-time' | 'question-number'>('date-time');
+  const [expandedEntryIds, setExpandedEntryIds] = useState<Record<string, boolean>>({});
 
   const { domainStats, competencyStats } = useMemo(() => {
     const makeRows = <T extends string>(labels: T[], keySelector: (entry: QuestionOfTheDayHistoryModalProps['entries'][number]) => T | null): StatRow[] =>
@@ -94,7 +124,16 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
 
   const filteredQuestionEntries = useMemo(() => {
     return [...entries]
-      .sort((a, b) => b.completedAtMs - a.completedAtMs)
+      .sort((a, b) => {
+        if (sortBy === 'question-number') {
+          const aMatch = a.question?.id.match(/(\d+)$/);
+          const bMatch = b.question?.id.match(/(\d+)$/);
+          const aQuestionNumber = aMatch ? Number.parseInt(aMatch[1], 10) : Number.POSITIVE_INFINITY;
+          const bQuestionNumber = bMatch ? Number.parseInt(bMatch[1], 10) : Number.POSITIVE_INFINITY;
+          return aQuestionNumber - bQuestionNumber;
+        }
+        return b.completedAtMs - a.completedAtMs;
+      })
       .filter((entry) => {
         if (domainFilter !== 'all' && entry.question?.domain !== domainFilter) return false;
         if (competencyFilter !== 'all' && entry.question?.competency !== competencyFilter) return false;
@@ -102,7 +141,7 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
         if (resultFilter === 'incorrect' && entry.isCorrect !== false) return false;
         return true;
       });
-  }, [entries, domainFilter, competencyFilter, resultFilter]);
+  }, [entries, domainFilter, competencyFilter, resultFilter, sortBy]);
 
   return (
     <motion.div
@@ -154,51 +193,60 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
               </div>
             ) : (
               <>
-                <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-3 sm:p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Domain filter</span>
-                      <select
-                        value={domainFilter}
-                        onChange={(e) => setDomainFilter(e.target.value as 'all' | QotdClinicalDomain)}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
-                      >
-                        <option value="all">All domains</option>
-                        {ALL_DOMAINS.map((domain) => (
-                          <option key={domain} value={domain}>
-                            {domain}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Competency filter</span>
-                      <select
-                        value={competencyFilter}
-                        onChange={(e) => setCompetencyFilter(e.target.value as 'all' | QotdCompetency)}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
-                      >
-                        <option value="all">All competencies</option>
-                        {ALL_COMPETENCIES.map((competency) => (
-                          <option key={competency} value={competency}>
-                            {competency}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Result filter</span>
-                      <select
-                        value={resultFilter}
-                        onChange={(e) => setResultFilter(e.target.value as 'both' | 'correct' | 'incorrect')}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
-                      >
-                        <option value="both">Both</option>
-                        <option value="correct">Correct</option>
-                        <option value="incorrect">Incorrect</option>
-                      </select>
-                    </label>
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Domain filter</span>
+                    <select
+                      value={domainFilter}
+                      onChange={(e) => setDomainFilter(e.target.value as 'all' | QotdClinicalDomain)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+                    >
+                      <option value="all">All domains</option>
+                      {ALL_DOMAINS.map((domain) => (
+                        <option key={domain} value={domain}>
+                          {domain}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Competency filter</span>
+                    <select
+                      value={competencyFilter}
+                      onChange={(e) => setCompetencyFilter(e.target.value as 'all' | QotdCompetency)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+                    >
+                      <option value="all">All competencies</option>
+                      {ALL_COMPETENCIES.map((competency) => (
+                        <option key={competency} value={competency}>
+                          {competency}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Result filter</span>
+                    <select
+                      value={resultFilter}
+                      onChange={(e) => setResultFilter(e.target.value as 'both' | 'correct' | 'incorrect')}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+                    >
+                      <option value="both">Both</option>
+                      <option value="correct">Correct</option>
+                      <option value="incorrect">Incorrect</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">Sort By</span>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as 'date-time' | 'question-number')}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+                    >
+                      <option value="date-time">Date &amp; Time</option>
+                      <option value="question-number">Question Number</option>
+                    </select>
+                  </label>
                 </div>
                 {filteredQuestionEntries.length === 0 && (
                   <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-6 text-center">
@@ -226,6 +274,8 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                 const correctChoiceLabel = correctChoiceId
                   ? entry.question?.choices.find((c) => c.id === correctChoiceId)?.label
                   : undefined;
+                const completedAtLabel = formatCompletedAtEasternTime(entry.completedAtMs);
+                const qbankQuestionNumber = getQbankQuestionNumber(entry.question?.id);
                 const correctOnlyExplanation =
                   entry.question && correctChoiceId
                     ? entry.question.explanationsByChoice[correctChoiceId] ?? ''
@@ -240,58 +290,77 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                       ? wrongChoiceExplanation
                       : entry.explanationShown
                     : '';
+                const isExpanded = expandedEntryIds[entry.id] === true;
                 return (
-                  <div key={entry.id} className={`rounded-xl border-2 border-slate-200 p-4 space-y-3 ${cardBgClass}`}>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs font-black uppercase tracking-wider text-slate-500">{entry.dateKey}</p>
+                  <div key={entry.id} className={`rounded-xl border-2 border-slate-200 ${cardBgClass}`}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedEntryIds((prev) => ({
+                          ...prev,
+                          [entry.id]: !isExpanded,
+                        }))
+                      }
+                      className="w-full flex flex-wrap items-center justify-between gap-2 p-4 text-left"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-black uppercase tracking-wider text-slate-500">{completedAtLabel}</p>
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-700">
-                          {entry.source === 'qotd' ? 'Question of the Day' : 'Quick Quiz'}
+                          {qbankQuestionNumber}
                         </span>
                         <span className="rounded-full bg-cyan-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-800">
-                          Domain: {entry.question?.domain ?? 'Unavailable'}
+                          {entry.question?.domain ?? 'Unavailable'}
                         </span>
                         <span className="rounded-full bg-purple-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-purple-800">
-                          Competency: {entry.question?.competency ?? 'Unavailable'}
+                          {entry.question?.competency ?? 'Unavailable'}
                         </span>
                       </div>
-                      <p className={`text-xs font-black uppercase tracking-wider ${resultClass}`}>{resultLabel}</p>
-                    </div>
-                    <p className="text-sm font-semibold text-slate-900">{entry.question?.stem ?? 'Question unavailable.'}</p>
-                    <p className="text-sm text-slate-700">
-                      <span className="font-black">Your answer:</span>{' '}
-                      {entry.selectedChoiceId ? `${entry.selectedChoiceId}. ${selectedLabel}` : 'Unavailable'}
-                    </p>
-                    {entry.isCorrect === false ? (
-                      <>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-xs font-black uppercase tracking-wider ${resultClass}`}>{resultLabel}</p>
+                        <ChevronDown
+                          className={`h-4 w-4 text-slate-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="space-y-3 border-t border-slate-200 p-4">
+                        <p className="text-sm font-semibold text-slate-900">{entry.question?.stem ?? 'Question unavailable.'}</p>
                         <p className="text-sm text-slate-700">
-                          <span className="font-black">Incorrect answer explanation:</span> {incorrectAnswerExplanationText}
+                          <span className="font-black">Your answer:</span>{' '}
+                          {entry.selectedChoiceId ? `${entry.selectedChoiceId}. ${selectedLabel}` : 'Unavailable'}
                         </p>
-                        {entry.question && correctChoiceId && (
+                        {entry.isCorrect === false ? (
                           <>
                             <p className="text-sm text-slate-700">
-                              <span className="font-black">Correct Answer:</span>{' '}
-                              {correctChoiceLabel != null
-                                ? `${correctChoiceId}. ${correctChoiceLabel}`
-                                : `${correctChoiceId}.`}
+                              <span className="font-black">Incorrect answer explanation:</span> {incorrectAnswerExplanationText}
                             </p>
-                            {correctOnlyExplanation ? (
-                              <p className="text-sm text-slate-700">
-                                <span className="font-black">Explanation:</span> {correctOnlyExplanation}
-                              </p>
-                            ) : null}
+                            {entry.question && correctChoiceId && (
+                              <>
+                                <p className="text-sm text-slate-700">
+                                  <span className="font-black">Correct Answer:</span>{' '}
+                                  {correctChoiceLabel != null
+                                    ? `${correctChoiceId}. ${correctChoiceLabel}`
+                                    : `${correctChoiceId}.`}
+                                </p>
+                                {correctOnlyExplanation ? (
+                                  <p className="text-sm text-slate-700">
+                                    <span className="font-black">Explanation:</span> {correctOnlyExplanation}
+                                  </p>
+                                ) : null}
+                              </>
+                            )}
                           </>
+                        ) : (
+                          <p className="text-sm text-slate-700">
+                            <span className="font-black">Explanation:</span> {entry.explanationShown}
+                          </p>
                         )}
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-700">
-                        <span className="font-black">Explanation:</span> {entry.explanationShown}
-                      </p>
+                        <p className="text-sm text-amber-900">
+                          <span className="font-black">Mnemonic:</span> {entry.mnemonicShown}
+                        </p>
+                        <p className="text-sm text-purple-700 font-semibold">BP earned: {entry.bpEarned}</p>
+                      </div>
                     )}
-                    <p className="text-sm text-amber-900">
-                      <span className="font-black">Mnemonic:</span> {entry.mnemonicShown}
-                    </p>
-                    <p className="text-sm text-purple-700 font-semibold">BP earned: {entry.bpEarned}</p>
                   </div>
                 );
                 })}
