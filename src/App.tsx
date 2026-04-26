@@ -1190,9 +1190,11 @@ export default function App() {
     const uid = firebaseUser.uid;
     const t = window.setTimeout(() => {
       const payload = progressSnapshotRef.current;
+      const payloadJson = stableStringifyProgress(payload);
+      if (payloadJson === lastPushedProgressJsonRef.current) return;
       saveUserProgress(db, uid, payload)
         .then(() => {
-          lastPushedProgressJsonRef.current = stableStringifyProgress(payload);
+          lastPushedProgressJsonRef.current = payloadJson;
         })
         .catch((e) => console.error('[Firestore] save failed', e));
     }, 900);
