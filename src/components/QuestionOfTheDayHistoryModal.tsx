@@ -17,6 +17,8 @@ type QuestionOfTheDayHistoryModalProps = {
     mnemonicShown: string;
     bpEarned: number;
   }>;
+  isAdminMode: boolean;
+  onRemoveUnavailableQuickQuiz: (questionId: string) => void;
   onClose: () => void;
 };
 
@@ -94,7 +96,12 @@ const ALL_COMPETENCIES: QotdCompetency[] = [
   'Biostats/Evidence',
 ];
 
-export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfTheDayHistoryModalProps) {
+export function QuestionOfTheDayHistoryModal({
+  entries,
+  isAdminMode,
+  onRemoveUnavailableQuickQuiz,
+  onClose,
+}: QuestionOfTheDayHistoryModalProps) {
   const [activeTab, setActiveTab] = useState<'questions' | 'stats'>('questions');
   const [domainFilter, setDomainFilter] = useState<'all' | QotdClinicalDomain>('all');
   const [competencyFilter, setCompetencyFilter] = useState<'all' | QotdCompetency>('all');
@@ -299,6 +306,18 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                       ? wrongChoiceExplanation
                       : entry.explanationShown
                     : '';
+                const legacyQuickQuizQuestionId =
+                  entry.source === 'quick-quiz' &&
+                  entry.isCorrect === null &&
+                  entry.id.startsWith('quick-quiz:legacy:')
+                    ? entry.id.replace('quick-quiz:legacy:', '')
+                    : null;
+                const removableQuestionId =
+                  entry.source === 'quick-quiz' &&
+                  entry.isCorrect === null &&
+                  isAdminMode
+                    ? (entry.question?.id ?? legacyQuickQuizQuestionId)
+                    : null;
                 const isExpanded = expandedEntryIds[entry.id] === true;
                 return (
                   <div key={entry.id} className={`rounded-xl border-2 border-slate-200 ${cardBgClass}`}>
@@ -377,6 +396,21 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
                           <span className="font-black">Mnemonic:</span> {entry.mnemonicShown}
                         </p>
                         <p className="text-sm text-purple-700 font-semibold">BP earned: {entry.bpEarned}</p>
+                        {removableQuestionId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const confirmed = window.confirm(
+                                'Remove this unavailable legacy quick quiz entry and make this question eligible again?'
+                              );
+                              if (!confirmed) return;
+                              onRemoveUnavailableQuickQuiz(removableQuestionId);
+                            }}
+                            className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black uppercase tracking-wider text-rose-700 hover:bg-rose-100"
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

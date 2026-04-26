@@ -1270,6 +1270,16 @@ export default function App() {
 
     return dedupedEntries.sort((a, b) => b.completedAtMs - a.completedAtMs);
   }, [qotdByDate, quickQuizAskedQuestionIds, quickQuizAttemptsByQuestionId]);
+  const removeUnavailableQuickQuizEntry = useCallback((questionId: string) => {
+    if (!questionId) return;
+    setQuickQuizAskedQuestionIds((prev) => prev.filter((id) => id !== questionId));
+    setQuickQuizAttemptsByQuestionId((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, questionId)) return prev;
+      const next = { ...prev };
+      delete next[questionId];
+      return next;
+    });
+  }, []);
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
   const askedQuestionIds = useMemo(() => {
@@ -4580,6 +4590,8 @@ export default function App() {
         {showQotdHistoryModal && (
           <QuestionOfTheDayHistoryModal
             entries={quizHistoryEntries}
+            isAdminMode={isTestMode}
+            onRemoveUnavailableQuickQuiz={removeUnavailableQuickQuizEntry}
             onClose={() => setShowQotdHistoryModal(false)}
           />
         )}
