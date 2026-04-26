@@ -19,6 +19,7 @@ type QuickQuizModalProps = {
   onSelectChoice: (questionId: string, choiceId: string) => void;
   onSubmit: () => void;
   hasSubmitted: boolean;
+  isSubmitting: boolean;
   results: QuickQuizResultItem[];
   onClose: () => void;
 };
@@ -29,6 +30,7 @@ export function QuickQuizModal({
   onSelectChoice,
   onSubmit,
   hasSubmitted,
+  isSubmitting,
   results,
   onClose,
 }: QuickQuizModalProps) {
@@ -217,10 +219,10 @@ export function QuickQuizModal({
             <button
               type="button"
               onClick={onSubmit}
-              disabled={!canSubmit}
+              disabled={!canSubmit || isSubmitting}
               className="question-count-clay-btn w-full rounded-xl bg-cyan-600 py-3 text-base font-black text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              Submit Quick Quiz ({answeredCount}/3 answered)
+              {isSubmitting ? 'Submitting...' : `Submit Quick Quiz (${answeredCount}/3 answered)`}
             </button>
           ) : (
             <button

@@ -8,6 +8,7 @@ type QuestionOfTheDayHistoryModalProps = {
     id: string;
     source: 'qotd' | 'quick-quiz';
     dateKey: string;
+    completedAtMs: number;
     question: QuestionOfTheDayItem | null;
     selectedChoiceId: string;
     isCorrect: boolean | null;
@@ -92,13 +93,15 @@ export function QuestionOfTheDayHistoryModal({ entries, onClose }: QuestionOfThe
   }, [entries]);
 
   const filteredQuestionEntries = useMemo(() => {
-    return entries.filter((entry) => {
-      if (domainFilter !== 'all' && entry.question?.domain !== domainFilter) return false;
-      if (competencyFilter !== 'all' && entry.question?.competency !== competencyFilter) return false;
-      if (resultFilter === 'correct' && entry.isCorrect !== true) return false;
-      if (resultFilter === 'incorrect' && entry.isCorrect !== false) return false;
-      return true;
-    });
+    return [...entries]
+      .sort((a, b) => b.completedAtMs - a.completedAtMs)
+      .filter((entry) => {
+        if (domainFilter !== 'all' && entry.question?.domain !== domainFilter) return false;
+        if (competencyFilter !== 'all' && entry.question?.competency !== competencyFilter) return false;
+        if (resultFilter === 'correct' && entry.isCorrect !== true) return false;
+        if (resultFilter === 'incorrect' && entry.isCorrect !== false) return false;
+        return true;
+      });
   }, [entries, domainFilter, competencyFilter, resultFilter]);
 
   return (

@@ -384,6 +384,8 @@ export default function App() {
   const [quickQuizSelectionsByQuestionId, setQuickQuizSelectionsByQuestionId] = useState<Record<string, string>>({});
   const [quickQuizResults, setQuickQuizResults] = useState<QuickQuizResultItem[]>([]);
   const [quickQuizHasSubmitted, setQuickQuizHasSubmitted] = useState(false);
+  const [quickQuizIsSubmitting, setQuickQuizIsSubmitting] = useState(false);
+  const quickQuizSubmitLockRef = useRef(false);
   const [questionsOfTheDayCompletedTotal, setQuestionsOfTheDayCompletedTotal] = useState(() => {
     if (typeof window === 'undefined') return 0;
     const raw = localStorage.getItem('questionsOfTheDayCompletedTotal');
@@ -1263,9 +1265,7 @@ export default function App() {
       };
     });
 
-    return [...qotdEntries, ...quickQuizEntries]
-      .sort((a, b) => b.completedAtMs - a.completedAtMs)
-      .map(({ completedAtMs, ...entry }) => entry);
+    return [...qotdEntries, ...quickQuizEntries].sort((a, b) => b.completedAtMs - a.completedAtMs);
   }, [qotdByDate, quickQuizAskedQuestionIds, quickQuizAttemptsByQuestionId]);
   const bonusPointsEarnedToday = Math.max(0, Number(bonusPointsHistory[todayKey] ?? 0) || 0);
   const isPracticeTestMissionCompleteToday = Boolean(practiceTestCompletionDates[todayKey]);
@@ -2598,6 +2598,8 @@ export default function App() {
     setQuickQuizSelectionsByQuestionId({});
     setQuickQuizResults([]);
     setQuickQuizHasSubmitted(false);
+    setQuickQuizIsSubmitting(false);
+    quickQuizSubmitLockRef.current = false;
     setShowQuickQuizModal(true);
   }, [askedQuestionIds]);
 
@@ -2606,9 +2608,11 @@ export default function App() {
   }, []);
 
   const submitQuickQuiz = useCallback(() => {
-    if (quickQuizHasSubmitted || quickQuizQuestions.length !== 3) return;
+    if (quickQuizSubmitLockRef.current || quickQuizHasSubmitted || quickQuizIsSubmitting || quickQuizQuestions.length !== 3) return;
     const allAnswered = quickQuizQuestions.every((question) => Boolean(quickQuizSelectionsByQuestionId[question.id]));
     if (!allAnswered) return;
+    quickQuizSubmitLockRef.current = true;
+    setQuickQuizIsSubmitting(true);
 
     const results = quickQuizQuestions.map((question) => {
       const selectedChoiceId = quickQuizSelectionsByQuestionId[question.id];
@@ -2659,6 +2663,7 @@ export default function App() {
     }
   }, [
     quickQuizHasSubmitted,
+    quickQuizIsSubmitting,
     quickQuizQuestions,
     quickQuizSelectionsByQuestionId,
     addQuestions,
@@ -4567,6 +4572,7 @@ export default function App() {
             }
             onSubmit={submitQuickQuiz}
             hasSubmitted={quickQuizHasSubmitted}
+            isSubmitting={quickQuizIsSubmitting}
             results={quickQuizResults}
             onClose={closeQuickQuizModal}
           />
