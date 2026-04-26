@@ -413,12 +413,6 @@ export default function App() {
   const [quickQuizHasSubmitted, setQuickQuizHasSubmitted] = useState(false);
   const [quickQuizIsSubmitting, setQuickQuizIsSubmitting] = useState(false);
   const quickQuizSubmitLockRef = useRef(false);
-  const [questionsOfTheDayCompletedTotal, setQuestionsOfTheDayCompletedTotal] = useState(() => {
-    if (typeof window === 'undefined') return 0;
-    const raw = localStorage.getItem('questionsOfTheDayCompletedTotal');
-    const n = raw ? parseInt(raw, 10) : 0;
-    return Number.isFinite(n) && n >= 0 ? n : 0;
-  });
   const [qotdByDate, setQotdByDate] = useState<Record<string, QotdAttemptRecord>>(() => {
     if (typeof window === 'undefined') return {};
     const raw = localStorage.getItem('qotdByDate');
@@ -913,7 +907,6 @@ export default function App() {
       )
     );
     setTotalQuestionsReviewed(Math.max(0, p.totalQuestionsReviewed ?? 0));
-    setQuestionsOfTheDayCompletedTotal(Math.max(0, p.questionsOfTheDayCompletedTotal ?? 0));
     setQotdByDate(sanitizeQotdByDateMap(p.qotdByDate));
     const cloudQuickQuizAskedIds = Array.isArray(p.quickQuizAskedQuestionIds)
       ? p.quickQuizAskedQuestionIds.filter((id): id is string => typeof id === 'string')
@@ -989,7 +982,6 @@ export default function App() {
         questionsToReviewToday,
         reviewPenaltyMultiplier,
         totalQuestionsReviewed,
-        questionsOfTheDayCompletedTotal,
         qotdByDate,
         quickQuizAskedQuestionIds,
         quickQuizAttemptsByQuestionId,
@@ -1018,7 +1010,6 @@ export default function App() {
       questionsToReviewToday,
       reviewPenaltyMultiplier,
       totalQuestionsReviewed,
-      questionsOfTheDayCompletedTotal,
       qotdByDate,
       quickQuizAskedQuestionIds,
       quickQuizAttemptsByQuestionId,
@@ -1901,10 +1892,6 @@ export default function App() {
   }, [bonusPointsHistory]);
 
   useEffect(() => {
-    localStorage.setItem('questionsOfTheDayCompletedTotal', questionsOfTheDayCompletedTotal.toString());
-  }, [questionsOfTheDayCompletedTotal]);
-
-  useEffect(() => {
     localStorage.setItem('qotdByDate', JSON.stringify(qotdByDate));
   }, [qotdByDate]);
 
@@ -2637,7 +2624,6 @@ export default function App() {
     };
 
     setQotdByDate((prev) => ({ ...prev, [todayKey]: attempt }));
-    setQuestionsOfTheDayCompletedTotal((prev) => prev + 1);
     setDailyQuestions((prev) => prev + 1);
     if (bpEarned > 0) {
       adjustBonusPointsForDay(todayKey, bpEarned);
@@ -2715,7 +2701,6 @@ export default function App() {
     });
 
     addQuestions(3);
-    setQuestionsOfTheDayCompletedTotal((prev) => prev + 3);
     if (bonusPointsEarned > 0) {
       adjustBonusPointsForDay(todayKey, bonusPointsEarned);
     }
@@ -2762,7 +2747,6 @@ export default function App() {
     setIsWarningMode(false);
     setExamDateKey(DEFAULT_EXAM_DATE_KEY);
     setDailyGoalQuestions(DAILY_GOAL);
-    setQuestionsOfTheDayCompletedTotal(0);
     setQotdByDate({});
     setQotdAssignedQuestionByDate({});
     setQotdRemainingQuestionIds(shuffleStrings(QOTD_QUESTION_BANK.map((q) => q.id)));

@@ -33,7 +33,6 @@ export type UserProgressV1 = {
   /** Step 2 exam day in local calendar `YYYY-MM-DD`. */
   examDateKey: string;
   dailyGoalQuestions: number;
-  questionsOfTheDayCompletedTotal: number;
   qotdByDate: Record<string, QotdAttemptRecord>;
   quickQuizAskedQuestionIds: string[];
   quickQuizAttemptsByQuestionId: Record<string, QuickQuizAttemptRecord>;
@@ -64,7 +63,6 @@ export function emptyUserProgress(): UserProgressV1 {
     recordDayModalLastShown: null,
     examDateKey: DEFAULT_EXAM_DATE_KEY,
     dailyGoalQuestions: DAILY_GOAL,
-    questionsOfTheDayCompletedTotal: 0,
     qotdByDate: {},
     quickQuizAskedQuestionIds: [],
     quickQuizAttemptsByQuestionId: {},

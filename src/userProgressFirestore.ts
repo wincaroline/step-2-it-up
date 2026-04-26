@@ -1,6 +1,7 @@
 import {
   doc,
   setDoc,
+  deleteField,
   serverTimestamp,
   Timestamp,
   type Firestore,
@@ -185,10 +186,6 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
         : null,
     examDateKey: asExamDateKey(data.examDateKey, base.examDateKey),
     dailyGoalQuestions: asDailyGoalQuestions(data.dailyGoalQuestions, base.dailyGoalQuestions),
-    questionsOfTheDayCompletedTotal: Math.max(
-      0,
-      asNum(data.questionsOfTheDayCompletedTotal, base.questionsOfTheDayCompletedTotal)
-    ),
     qotdByDate: asQotdByDate(data.qotdByDate),
     quickQuizAskedQuestionIds: asStrArr(data.quickQuizAskedQuestionIds, base.quickQuizAskedQuestionIds),
     quickQuizAttemptsByQuestionId: asQuickQuizAttemptsByQuestionId(data.quickQuizAttemptsByQuestionId),
@@ -202,6 +199,7 @@ export async function saveUserProgress(db: Firestore, uid: string, progress: Use
     {
       v,
       ...rest,
+      questionsOfTheDayCompletedTotal: deleteField(),
       updatedAt: serverTimestamp(),
     },
     { merge: true }
@@ -234,7 +232,6 @@ export function buildProgressFromAppState(args: {
   recordDayModalLastShown?: string | null;
   examDateKey: string;
   dailyGoalQuestions: number;
-  questionsOfTheDayCompletedTotal: number;
   qotdByDate: Record<string, QotdAttemptRecord>;
   quickQuizAskedQuestionIds: string[];
   quickQuizAttemptsByQuestionId: Record<string, QuickQuizAttemptRecord>;
@@ -273,7 +270,6 @@ export function buildProgressFromAppState(args: {
     recordDayModalLastShown,
     examDateKey: args.examDateKey,
     dailyGoalQuestions: args.dailyGoalQuestions,
-    questionsOfTheDayCompletedTotal: Math.max(0, Math.round(args.questionsOfTheDayCompletedTotal)),
     qotdByDate: args.qotdByDate,
     quickQuizAskedQuestionIds: args.quickQuizAskedQuestionIds,
     quickQuizAttemptsByQuestionId: args.quickQuizAttemptsByQuestionId,
