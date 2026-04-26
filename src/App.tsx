@@ -232,6 +232,31 @@ function sanitizeQotdByDateMap(input: unknown): Record<string, QotdAttemptRecord
   return out;
 }
 
+function sanitizeQuickQuizAttemptsMap(input: unknown): Record<string, QuickQuizAttemptRecord> {
+  if (!input || typeof input !== 'object') return {};
+  const parsed = input as Record<string, unknown>;
+  const out: Record<string, QuickQuizAttemptRecord> = {};
+  for (const [questionId, value] of Object.entries(parsed)) {
+    if (!value || typeof value !== 'object') continue;
+    const row = value as Record<string, unknown>;
+    if (
+      typeof row.questionId !== 'string' ||
+      row.questionId !== questionId ||
+      typeof row.dateKey !== 'string' ||
+      typeof row.selectedChoiceId !== 'string' ||
+      typeof row.explanationShown !== 'string' ||
+      typeof row.mnemonicShown !== 'string' ||
+      typeof row.isCorrect !== 'boolean' ||
+      !Number.isFinite(Number(row.bpEarned)) ||
+      !Number.isFinite(Number(row.completedAtMs))
+    ) {
+      continue;
+    }
+    out[questionId] = row as QuickQuizAttemptRecord;
+  }
+  return out;
+}
+
 /** Shared page-load fade props for main panels (no movement, no stagger). */
 const mainSectionLoadProps = {
   initial: { opacity: 0 },
@@ -377,22 +402,7 @@ export default function App() {
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (!parsed || typeof parsed !== 'object') return {};
-      return Object.fromEntries(
-        Object.entries(parsed as Record<string, unknown>).filter(([, value]) => {
-          if (!value || typeof value !== 'object') return false;
-          const row = value as Record<string, unknown>;
-          return (
-            typeof row.questionId === 'string' &&
-            typeof row.dateKey === 'string' &&
-            typeof row.selectedChoiceId === 'string' &&
-            typeof row.explanationShown === 'string' &&
-            typeof row.mnemonicShown === 'string' &&
-            typeof row.isCorrect === 'boolean' &&
-            Number.isFinite(Number(row.bpEarned)) &&
-            Number.isFinite(Number(row.completedAtMs))
-          );
-        })
-      ) as Record<string, QuickQuizAttemptRecord>;
+      return sanitizeQuickQuizAttemptsMap(parsed);
     } catch {
       return {};
     }
@@ -905,6 +915,37 @@ export default function App() {
     setTotalQuestionsReviewed(Math.max(0, p.totalQuestionsReviewed ?? 0));
     setQuestionsOfTheDayCompletedTotal(Math.max(0, p.questionsOfTheDayCompletedTotal ?? 0));
     setQotdByDate(sanitizeQotdByDateMap(p.qotdByDate));
+    const cloudQuickQuizAskedIds = Array.isArray(p.quickQuizAskedQuestionIds)
+      ? p.quickQuizAskedQuestionIds.filter((id): id is string => typeof id === 'string')
+      : [];
+    const cloudQuickQuizAttempts = sanitizeQuickQuizAttemptsMap(p.quickQuizAttemptsByQuestionId);
+    const cloudHasQuickQuizData =
+      cloudQuickQuizAskedIds.length > 0 || Object.keys(cloudQuickQuizAttempts).length > 0;
+    if (cloudHasQuickQuizData || typeof localStorage === 'undefined') {
+      setQuickQuizAskedQuestionIds(cloudQuickQuizAskedIds);
+      setQuickQuizAttemptsByQuestionId(cloudQuickQuizAttempts);
+    } else {
+      const localAskedRaw = localStorage.getItem(QUICK_QUIZ_ASKED_IDS_STORAGE_KEY);
+      const localAttemptsRaw = localStorage.getItem(QUICK_QUIZ_ATTEMPTS_STORAGE_KEY);
+      let localAskedIds: string[] = [];
+      let localAttempts: Record<string, QuickQuizAttemptRecord> = {};
+      try {
+        const parsed = localAskedRaw ? (JSON.parse(localAskedRaw) as unknown) : [];
+        if (Array.isArray(parsed)) {
+          localAskedIds = parsed.filter((id): id is string => typeof id === 'string');
+        }
+      } catch {
+        localAskedIds = [];
+      }
+      try {
+        const parsed = localAttemptsRaw ? (JSON.parse(localAttemptsRaw) as unknown) : {};
+        localAttempts = sanitizeQuickQuizAttemptsMap(parsed);
+      } catch {
+        localAttempts = {};
+      }
+      setQuickQuizAskedQuestionIds(localAskedIds);
+      setQuickQuizAttemptsByQuestionId(localAttempts);
+    }
     setLastAchievedIds(mergeDefaultSeenAchievementIds(p.lastAchievedIds));
     setExamDateKey(p.examDateKey);
     setDailyGoalQuestions(clampDailyGoal(p.dailyGoalQuestions));
@@ -950,6 +991,8 @@ export default function App() {
         totalQuestionsReviewed,
         questionsOfTheDayCompletedTotal,
         qotdByDate,
+        quickQuizAskedQuestionIds,
+        quickQuizAttemptsByQuestionId,
         lastAchievedIds,
         examDateKey,
         dailyGoalQuestions,
@@ -977,6 +1020,8 @@ export default function App() {
       totalQuestionsReviewed,
       questionsOfTheDayCompletedTotal,
       qotdByDate,
+      quickQuizAskedQuestionIds,
+      quickQuizAttemptsByQuestionId,
       lastAchievedIds,
       examDateKey,
       dailyGoalQuestions,

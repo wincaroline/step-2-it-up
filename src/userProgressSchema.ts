@@ -1,5 +1,5 @@
 import { DAILY_GOAL, DEFAULT_EXAM_DATE_KEY } from './constants';
-import type { QotdAttemptRecord } from './types/qotd';
+import type { QotdAttemptRecord, QuickQuizAttemptRecord } from './types/qotd';
 
 /** Persisted app progress (Firestore document `users/{uid}`). Bump `v` when shape changes. */
 export const USER_PROGRESS_VERSION = 2 as const;
@@ -35,6 +35,8 @@ export type UserProgressV1 = {
   dailyGoalQuestions: number;
   questionsOfTheDayCompletedTotal: number;
   qotdByDate: Record<string, QotdAttemptRecord>;
+  quickQuizAskedQuestionIds: string[];
+  quickQuizAttemptsByQuestionId: Record<string, QuickQuizAttemptRecord>;
 };
 
 export function emptyUserProgress(): UserProgressV1 {
@@ -64,5 +66,7 @@ export function emptyUserProgress(): UserProgressV1 {
     dailyGoalQuestions: DAILY_GOAL,
     questionsOfTheDayCompletedTotal: 0,
     qotdByDate: {},
+    quickQuizAskedQuestionIds: [],
+    quickQuizAttemptsByQuestionId: {},
   };
 }
