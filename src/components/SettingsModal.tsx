@@ -251,7 +251,7 @@ export function SettingsModal({
                       onChange={(e) => {
                         const val = e.target.value;
                         setTestCodeInput(val);
-                        if (val === '6782') {
+                        if (val === '1513') {
                           setIsTestMode(true);
                           setShowTestCodeInput(false);
                           setTestCodeInput('');
