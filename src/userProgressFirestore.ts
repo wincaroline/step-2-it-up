@@ -1,9 +1,9 @@
 import {
   doc,
-  setDoc,
   deleteField,
   serverTimestamp,
   Timestamp,
+  writeBatch,
   type Firestore,
   type DocumentData,
 } from 'firebase/firestore';
@@ -194,8 +194,23 @@ export function parseUserProgressDoc(data: DocumentData | undefined): UserProgre
 
 export async function saveUserProgress(db: Firestore, uid: string, progress: UserProgressV1): Promise<void> {
   const { v, ...rest } = progress;
-  await setDoc(
-    userProgressDocRef(db, uid),
+  const docRef = userProgressDocRef(db, uid);
+  // Firestore merge merges nested maps; omitted date keys would stay on the server and reappear on sync.
+  // Clear practice-test maps in the same batch, then write the current maps so removals persist.
+  const batch = writeBatch(db);
+  batch.set(
+    docRef,
+    {
+      practiceTestCompletionDates: deleteField(),
+      practiceTestScores: deleteField(),
+      practiceTestQuestionCredits: deleteField(),
+      practiceTestQuestionCounts: deleteField(),
+      practiceTestPercents: deleteField(),
+    },
+    { merge: true }
+  );
+  batch.set(
+    docRef,
     {
       v,
       ...rest,
@@ -204,6 +219,7 @@ export async function saveUserProgress(db: Firestore, uid: string, progress: Use
     },
     { merge: true }
   );
+  await batch.commit();
 }
 
 /** Same fields as cloud doc; when `recordDayModalLastShown` is omitted, reads localStorage key if present. */
