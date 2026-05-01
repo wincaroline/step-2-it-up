@@ -4988,6 +4988,18 @@ export default function App() {
                       Save
                     </button>
                   </div>
+                  {isTestMode && practiceTestCompletionDates[practiceScoreSpotlight.dateKey] && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleHistoryPracticeTestCompletionChange(practiceScoreSpotlight.dateKey, false);
+                        dismissPracticeScoreSpotlight();
+                      }}
+                      className="mt-3 w-full py-3 rounded-xl font-black text-sm uppercase tracking-widest bg-red-600 text-white border-2 border-red-700 hover:bg-red-500 hover:border-red-600 transition-all active:scale-[0.98]"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </>
               )}
               </div>

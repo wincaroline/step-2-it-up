@@ -224,12 +224,13 @@ export function getAchievementStatus(
   totalPracticeTests: number,
   /** Accuracy / practice bonuses — counts toward main level-tier badges (same XP as the level ladder). */
   bonusPoints: number = 0,
-  /** When set (e.g. `lastAchievedIds`), IDs already stored stay unlocked for display after threshold tweaks. Omit when detecting *new* unlocks. */
+  /** When set (e.g. `lastAchievedIds`), some IDs can stay unlocked for display after threshold tweaks. Omit when detecting *new* unlocks. */
   persistedUnlockedIds?: readonly string[]
 ): boolean {
-  if (persistedUnlockedIds?.includes(achievement.id)) return true;
   const practiceThreshold = PRACTICE_TEST_ACHIEVEMENT_THRESHOLDS[achievement.id];
+  // Practice-test badges must always reflect current count so removals immediately relock them.
   if (practiceThreshold !== undefined) return totalPracticeTests >= practiceThreshold;
+  if (persistedUnlockedIds?.includes(achievement.id)) return true;
   if (['steadyswimmer', 'highfivefin', 'tenacioustraveler', 'torrenttamer', 'silverspawner', 'streamsovereign'].includes(achievement.id)) {
     const streak = calculateCurrentStreak(history, referenceDate);
     if (achievement.id === 'steadyswimmer') return streak >= 3;
